@@ -122,9 +122,7 @@ export default function SourceArea(props) {
                             } else {
                                 setSourceText(newText);
                             }
-                            detect_language(newText).then(() => {
-                                syncSourceText();
-                            });
+                            detect_language(newText).then(syncAfterDetect);
                         },
                         (e) => {
                             setSourceText(e.toString());
@@ -159,9 +157,7 @@ export default function SourceArea(props) {
                                 } else {
                                     setSourceText(newText);
                                 }
-                                detect_language(newText).then(() => {
-                                    syncSourceText();
-                                });
+                                detect_language(newText).then(syncAfterDetect);
                             },
                             (e) => {
                                 setSourceText(e.toString());
@@ -186,18 +182,14 @@ export default function SourceArea(props) {
             } else {
                 setSourceText(newText);
             }
-            detect_language(newText).then(() => {
-                syncSourceText();
-            });
+            detect_language(newText).then(syncAfterDetect);
         }
     };
 
     const keyDown = (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            detect_language(sourceText).then(() => {
-                syncSourceText();
-            });
+            detect_language(sourceText).then(syncAfterDetect);
         }
         if (event.key === 'Escape') {
             appWindow.close();
@@ -321,6 +313,13 @@ export default function SourceArea(props) {
         return String(fromKey).startsWith('zh') ? 'en' : 'zh_cn';
     };
 
+    const syncAfterDetect = (detected) => {
+        if (detected && !languageManualRef.current) {
+            setTargetLanguage(pairTargetForSource(detected));
+        }
+        syncSourceText();
+    };
+
     const applySourceLanguage = (key) => {
         if (key === 'auto') {
             languageManualRef.current = false;
@@ -356,9 +355,7 @@ export default function SourceArea(props) {
                 clearTimeout(sourceTextChangeTimer);
             }
             sourceTextChangeTimer = setTimeout(() => {
-                detect_language(text).then(() => {
-                    syncSourceText();
-                });
+                detect_language(text).then(syncAfterDetect);
             }, 1000);
         }
     };
@@ -526,9 +523,7 @@ export default function SourceArea(props) {
                                     onPress={() => {
                                         const newText = sourceText.replace(/\-\s+/g, '').replace(/\s+/g, ' ');
                                         setSourceText(newText);
-                                        detect_language(newText).then(() => {
-                                            syncSourceText();
-                                        });
+                                        detect_language(newText).then(syncAfterDetect);
                                     }}
                                 >
                                     <MdSmartButton className='text-[16px]' />
@@ -600,9 +595,7 @@ export default function SourceArea(props) {
                             className='text-[14px] font-bold'
                             startContent={<HiTranslate className='text-[16px]' />}
                             onPress={() => {
-                                detect_language(sourceText).then(() => {
-                                    syncSourceText();
-                                });
+                                detect_language(sourceText).then(syncAfterDetect);
                             }}
                         />
                     </Tooltip>

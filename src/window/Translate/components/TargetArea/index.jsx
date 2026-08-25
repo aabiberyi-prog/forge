@@ -107,6 +107,11 @@ export default function TargetArea(props) {
             hideWindow !== null &&
             clipboardMonitor !== null
         ) {
+            // Auto-detect is async. Translating before it arrives uses the configured
+            // target (often English) and paraphrases English source (EN→EN).
+            if (sourceLanguage === 'auto' && !detectLanguage) {
+                return;
+            }
             if (autoCopy === 'source' && !clipboardMonitor) {
                 writeText(sourceText).then(() => {
                     if (hideWindow) {
@@ -120,6 +125,7 @@ export default function TargetArea(props) {
         sourceText,
         sourceLanguage,
         targetLanguage,
+        detectLanguage,
         autoCopy,
         hideWindow,
         currentTranslateServiceInstanceKey,
