@@ -196,8 +196,10 @@ export default function TargetArea(props) {
                 }
                 setIsLoading(true);
                 setHide(true);
-                const instanceConfig = serviceInstanceConfigMap[currentTranslateServiceInstanceKey];
-                instanceConfig['enable'] = 'true';
+                const instanceConfig = {
+                    ...(serviceInstanceConfigMap[currentTranslateServiceInstanceKey] ?? {}),
+                    enable: 'true',
+                };
                 const setHideOnce = invokeOnce(setHide);
                 let [func, utils] = await invoke_plugin('translate', translateServiceName);
                 func(sourceText.trim(), pluginInfo.language[sourceLanguage], pluginInfo.language[newTargetLanguage], {
@@ -746,9 +748,11 @@ export default function TargetArea(props) {
                                             ) {
                                                 setIsLoading(true);
                                                 setHide(true);
-                                                const instanceConfig =
-                                                    serviceInstanceConfigMap[currentTranslateServiceInstanceKey];
-                                                instanceConfig['enable'] = 'true';
+                                                const instanceConfig = {
+                                                    ...(serviceInstanceConfigMap[currentTranslateServiceInstanceKey] ??
+                                                        {}),
+                                                    enable: 'true',
+                                                };
                                                 const setHideOnce = invokeOnce(setHide);
                                                 let [func, utils] = await invoke_plugin(
                                                     'translate',

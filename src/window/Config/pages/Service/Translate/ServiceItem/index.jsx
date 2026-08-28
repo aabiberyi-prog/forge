@@ -3,6 +3,7 @@ import { Spacer, Button, Switch } from '@nextui-org/react';
 import { MdDeleteOutline } from 'react-icons/md';
 import { useTranslation } from 'react-i18next';
 import { BiSolidEdit } from 'react-icons/bi';
+import { emit } from '@tauri-apps/api/event';
 import React from 'react';
 
 import * as builtinServices from '../../../../../../services/translate';
@@ -59,7 +60,10 @@ export default function ServiceItem(props) {
                         size='sm'
                         isSelected={serviceInstanceConfig['enable'] ?? true}
                         onValueChange={(v) => {
-                            setServiceInstanceConfig({ ...serviceInstanceConfig, enable: v });
+                            const next = { ...serviceInstanceConfig, enable: v };
+                            setServiceInstanceConfig(next, true);
+                            const eventKey = serviceInstanceKey.replaceAll('.', '_').replaceAll('@', ':');
+                            emit(`${eventKey}_changed`, next);
                         }}
                     />
                     <Button

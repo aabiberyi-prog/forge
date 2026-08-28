@@ -320,6 +320,22 @@ export default function Translate() {
         ttsServiceInstanceList,
         collectionServiceInstanceList,
     ]);
+    // Config window toggles `enable` on the instance object; this window otherwise keeps a stale map.
+    useEffect(() => {
+        if (translateServiceInstanceList === null) return;
+        const unlisteners = translateServiceInstanceList.map((key) => {
+            const eventKey = key.replaceAll('.', '_').replaceAll('@', ':');
+            return listen(`${eventKey}_changed`, (e) => {
+                setServiceInstanceConfigMap((old) => {
+                    if (!old) return old;
+                    return { ...old, [key]: e.payload ?? {} };
+                });
+            });
+        });
+        return () => {
+            unlisteners.forEach((p) => p.then((f) => f()));
+        };
+    }, [translateServiceInstanceList]);
 
     // Shell chrome opacity only — source/target text panels stay fully opaque (see SourceArea/TargetArea).
     const shellOpacity = windowOpacity ?? 0.92;
