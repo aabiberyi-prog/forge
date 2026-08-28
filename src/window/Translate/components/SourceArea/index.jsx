@@ -43,6 +43,43 @@ export const detectLanguageAtom = atom('');
 
 let unlisten = null;
 let timer = null;
+// Keep typed source across tray/hotkey reopen (INPUT_TRANSLATE used to wipe it).
+let lastSourceText = '';
+let persistDraftTimer = null;
+let draftHydrated = false;
+
+function rememberSourceText(text) {
+    const next = typeof text === 'string' ? text : '';
+    lastSourceText = next;
+    if (!draftHydrated && next === '') {
+        return;
+    }
+    draftHydrated = true;
+    if (persistDraftTimer) {
+        clearTimeout(persistDraftTimer);
+    }
+    persistDraftTimer = setTimeout(() => {
+        store.set('translate_input_draft', next);
+        store.save();
+    }, 400);
+}
+
+async function restoreInputDraft(setSourceText) {
+    const keep = lastSourceText;
+    if (typeof keep === 'string' && keep.length > 0) {
+        draftHydrated = true;
+        setSourceText((old) => (old && old.length > 0 ? old : keep));
+        return;
+    }
+    const draft = await store.get('translate_input_draft');
+    if (typeof draft === 'string' && draft.length > 0) {
+        lastSourceText = draft;
+        draftHydrated = true;
+        setSourceText((old) => (old && old.length > 0 ? old : draft));
+    } else {
+        draftHydrated = true;
+    }
+}
 
 export default function SourceArea(props) {
     const { pluginList, serviceInstanceConfigMap } = props;
@@ -82,16 +119,17 @@ export default function SourceArea(props) {
             appWindow.show();
             appWindow.setFocus();
         }
-        // New text: allow auto-detect again
-        languageManualRef.current = false;
-        setLanguageManual(false);
-        setDetectLanguage('');
         if (text === '[INPUT_TRANSLATE]') {
             setWindowType('[INPUT_TRANSLATE]');
             appWindow.show();
             appWindow.setFocus();
-            setSourceText('', true);
+            // Reopen (tray icon / Alt+E) must not wipe a draft the user already typed.
+            await restoreInputDraft(setSourceText);
         } else if (text === '[IMAGE_TRANSLATE]') {
+            // New text: allow auto-detect again
+            languageManualRef.current = false;
+            setLanguageManual(false);
+            setDetectLanguage('');
             setWindowType('[IMAGE_TRANSLATE]');
             const base64 = await invoke('get_base64');
             const serviceInstanceKey = recognizeServiceList[0];
@@ -168,6 +206,10 @@ export default function SourceArea(props) {
                 }
             }
         } else {
+            // New text: allow auto-detect again
+            languageManualRef.current = false;
+            setLanguageManual(false);
+            setDetectLanguage('');
             setWindowType('[SELECTION_TRANSLATE]');
             let newText = text.trim();
             if (deleteNewline) {
@@ -229,6 +271,10 @@ export default function SourceArea(props) {
             speak(data);
         }
     };
+
+    useEffect(() => {
+        rememberSourceText(sourceText);
+    }, [sourceText]);
 
     useEffect(() => {
         if (hideWindow !== null) {
