@@ -1,0 +1,16 @@
+Forge (Pot Forge)
+
+Forge is derived from Pot (pot-desktop), developed by the pot-app
+contributors:
+https://github.com/pot-app/pot-desktop
+
+Copyright in the upstream work remains with the pot-app contributors and
+the respective copyright holders identified in the source files and Git
+history. Forge modifications are maintained by the Forge contributors:
+https://github.com/aabiberyi-prog/forge
+
+Forge is distributed under the GNU General Public License, version 3 only
+(GPL-3.0-only). The complete license text is provided in LICENSE. Existing
+copyright notices and license notices in individual files remain in effect.
+
+Third-party dependencies retain their own copyright and license notices.
