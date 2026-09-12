@@ -183,19 +183,21 @@ the dead dependency.
 
 ## 5. Phases
 
-### Phase 0 — Foundation ✅ mostly done
+### Phase 0 — Foundation ✅ implemented and verified
 
 - [x] Repo created, full 1,542-commit history pushed
 - [x] `upstream` remote → pot-app/pot-desktop (archived, reference only)
 - [x] `pnpm-workspace.yaml` tracked
 - [x] This document
-- [ ] `NOTICE` crediting pot-app contributors
-- [ ] **New minisign updater keypair**
+- [x] `NOTICE` crediting pot-app contributors
+- [x] **New minisign updater keypair**
 
-> **Live bug, fix in phase 0.** `src-tauri/tauri.conf.json` still points the
-> updater at pot-app's GitHub endpoints and pubkey. A Forge build would pull
-> **upstream Pot releases** over itself. Generate a Forge keypair and repoint
-> the endpoints before any build is distributed.
+> **Fixed locally in phase 0 (2026-09-12).** The main config, all three
+> fixed-WebView2 overrides, and both manifest generators now point at Forge
+> releases. All updater configs use the new Forge public key; the private
+> key is protected outside Git with Windows DPAPI. See
+> [the Phase 0 execution record](PHASE-0-FOUNDATION.md) for verification,
+> key custody, and release limitations. No build has been distributed.
 
 ### Phase 1 — Tauri 1.8 → 2 migration · 2–4 weeks · ⚠ highest uncertainty
 
