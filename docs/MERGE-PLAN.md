@@ -203,6 +203,10 @@ the dead dependency.
 
 The dominant cost. Nothing else starts until this lands.
 
+Implementation and live acceptance are complete on `phase-1/tauri2-migration`.
+See [the Phase 1 execution record](PHASE-1-TAURI2.md). No Phase 1 commit or
+push has been made. Phase 2 has not started.
+
 | Area | Work |
 |---|---|
 | Config | `tauri.allowlist` → `capabilities/*.json` ACL; `devPath`→`devUrl`; `distDir`→`frontendDist`; `package.*` → top level |
