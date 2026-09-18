@@ -1,6 +1,6 @@
 import { useLocation, useRoutes } from 'react-router-dom';
 import React, { useEffect, useState } from 'react';
-import { appWindow } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Card, Divider } from '@nextui-org/react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,7 @@ import { osType } from '../../utils/env';
 import { useConfig } from '../../hooks';
 import routes from './routes';
 import './style.css';
+const appWindow = getCurrentWebviewWindow();
 
 export default function Config() {
     const [transparent] = useConfig('transparent', true);

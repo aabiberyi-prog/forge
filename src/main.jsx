@@ -1,5 +1,5 @@
 import { ThemeProvider as NextThemesProvider } from 'next-themes';
-import { appWindow } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { NextUIProvider } from '@nextui-org/react';
 import ReactDOM from 'react-dom/client';
 import React from 'react';
@@ -7,6 +7,7 @@ import React from 'react';
 import { initStore } from './utils/store';
 import { initEnv } from './utils/env';
 import App from './App';
+const appWindow = getCurrentWebviewWindow();
 
 if (import.meta.env.PROD) {
     document.addEventListener('contextmenu', (e) => {

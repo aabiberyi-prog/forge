@@ -12,10 +12,10 @@ import {
     Tooltip,
 } from '@nextui-org/react';
 import { BiCollapseVertical, BiExpandVertical } from 'react-icons/bi';
-import { BaseDirectory, readTextFile } from '@tauri-apps/api/fs';
-import { sendNotification } from '@tauri-apps/api/notification';
+import { BaseDirectory, readTextFile } from '@tauri-apps/plugin-fs';
+import { sendNotification } from '@tauri-apps/plugin-notification';
 import React, { useEffect, useState, useRef } from 'react';
-import { writeText } from '@tauri-apps/api/clipboard';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import PulseLoader from 'react-spinners/PulseLoader';
 import { TbTransformFilled } from 'react-icons/tb';
 import { HiOutlineVolumeUp } from 'react-icons/hi';
@@ -24,7 +24,7 @@ import { semanticColors } from '@nextui-org/theme';
 import toast, { Toaster } from 'react-hot-toast';
 import { MdContentCopy } from 'react-icons/md';
 import { useTranslation } from 'react-i18next';
-import Database from 'tauri-plugin-sql-api';
+import Database from '@tauri-apps/plugin-sql';
 import { GiCycle } from 'react-icons/gi';
 import { useTheme } from 'next-themes';
 import { useAtomValue } from 'jotai';
@@ -40,7 +40,7 @@ import { invoke_plugin } from '../../../../utils/invoke_plugin';
 import * as builtinServices from '../../../../services/translate';
 import * as builtinTtsServices from '../../../../services/tts';
 
-import { info, error as logError } from 'tauri-plugin-log-api';
+import { info, error as logError } from '@tauri-apps/plugin-log';
 import {
     INSTANCE_NAME_CONFIG_KEY,
     ServiceSourceType,
@@ -180,8 +180,7 @@ export default function TargetArea(props) {
             if (sourceLanguage in pluginInfo.language && targetLanguage in pluginInfo.language) {
                 let newTargetLanguage = targetLanguage;
                 // Avoid same-language translate (e.g. EN→EN when user forces English source)
-                const effectiveSource =
-                    sourceLanguage === 'auto' ? detectLanguage || sourceLanguage : sourceLanguage;
+                const effectiveSource = sourceLanguage === 'auto' ? detectLanguage || sourceLanguage : sourceLanguage;
                 if (
                     (sourceLanguage === 'auto' && targetLanguage === detectLanguage) ||
                     (sourceLanguage !== 'auto' && sourceLanguage === targetLanguage) ||
@@ -268,8 +267,7 @@ export default function TargetArea(props) {
             if (sourceLanguage in LanguageEnum && targetLanguage in LanguageEnum) {
                 let newTargetLanguage = targetLanguage;
                 // Avoid same-language translate (e.g. EN→EN when user forces English source)
-                const effectiveSource =
-                    sourceLanguage === 'auto' ? detectLanguage || sourceLanguage : sourceLanguage;
+                const effectiveSource = sourceLanguage === 'auto' ? detectLanguage || sourceLanguage : sourceLanguage;
                 if (
                     (sourceLanguage === 'auto' && targetLanguage === detectLanguage) ||
                     (sourceLanguage !== 'auto' && sourceLanguage === targetLanguage) ||
@@ -377,7 +375,7 @@ export default function TargetArea(props) {
     useEffect(() => {
         if (ttsServiceList && getServiceSouceType(ttsServiceList[0]) === ServiceSourceType.PLUGIN) {
             readTextFile(`plugins/tts/${getServiceName(ttsServiceList[0])}/info.json`, {
-                dir: BaseDirectory.AppConfig,
+                baseDir: BaseDirectory.AppConfig,
             }).then((infoStr) => {
                 setTtsPluginInfo(JSON.parse(infoStr));
             });

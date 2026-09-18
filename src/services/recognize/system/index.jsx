@@ -1,6 +1,6 @@
 import detect from '../../../utils/lang_detect';
 import { osType } from '../../../utils/env';
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 import { Language } from './info';
 
 export async function recognize(_, lang) {

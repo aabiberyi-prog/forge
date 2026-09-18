@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 
 /**
  * Built-in Edge neural TTS (少御向 defaults).
@@ -6,12 +6,7 @@ import { invoke } from '@tauri-apps/api';
  */
 export async function tts(text, lang, options = {}) {
     const { config = {} } = options;
-    const {
-        voice_zh = 'zh-CN-XiaoxiaoNeural',
-        voice_en = 'en-US-AriaNeural',
-        rate = '-20%',
-        pitch = '+0Hz',
-    } = config;
+    const { voice_zh = 'zh-CN-XiaoxiaoNeural', voice_en = 'en-US-AriaNeural', rate = '-20%', pitch = '+0Hz' } = config;
 
     const bytes = await invoke('edge_tts_synthesize', {
         text,

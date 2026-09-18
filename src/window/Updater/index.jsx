@@ -1,24 +1,23 @@
 import { Code, Card, CardBody, Button, Progress, Skeleton } from '@nextui-org/react';
-import { checkUpdate, installUpdate } from '@tauri-apps/api/updater';
+import { check } from '@tauri-apps/plugin-updater';
 import React, { useEffect, useState } from 'react';
-import { appWindow } from '@tauri-apps/api/window';
-import { relaunch } from '@tauri-apps/api/process';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { relaunch } from '@tauri-apps/plugin-process';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
-import { listen } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
 
 import { useConfig, useToastStyle } from '../../hooks';
 import { osType } from '../../utils/env';
-
-let unlisten = 0;
-let eventId = 0;
+const appWindow = getCurrentWebviewWindow();
 
 export default function Updater() {
     const [transparent] = useConfig('transparent', true);
     const [downloaded, setDownloaded] = useState(0);
     const [total, setTotal] = useState(0);
     const [body, setBody] = useState('');
+    const [availableUpdate, setAvailableUpdate] = useState(null);
+    const [installing, setInstalling] = useState(false);
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
 
@@ -26,32 +25,32 @@ export default function Updater() {
         if (appWindow.label === 'updater') {
             appWindow.show();
         }
-        checkUpdate().then(
+        let disposed = false;
+        let updateResource;
+        check().then(
             (update) => {
-                if (update.shouldUpdate) {
-                    setBody(update.manifest.body);
+                updateResource = update;
+                if (disposed) {
+                    update?.close();
+                    return;
+                }
+                setAvailableUpdate(update);
+                if (update) {
+                    setBody(update.body ?? '');
                 } else {
                     setBody(t('updater.latest'));
                 }
             },
             (e) => {
+                if (disposed) return;
                 setBody(e.toString());
                 toast.error(e.toString(), { style: toastStyle });
             }
         );
-        if (unlisten === 0) {
-            unlisten = listen('tauri://update-download-progress', (e) => {
-                if (eventId === 0) {
-                    eventId = e.id;
-                }
-                if (e.id === eventId) {
-                    setTotal(e.payload.contentLength);
-                    setDownloaded((a) => {
-                        return a + e.payload.chunkLength;
-                    });
-                }
-            });
-        }
+        return () => {
+            disposed = true;
+            updateResource?.close();
+        };
     }, []);
 
     return (
@@ -152,19 +151,29 @@ export default function Updater() {
             <div className='grid gap-4 grid-cols-2 h-[50px] my-[10px] mx-[80px]'>
                 <Button
                     variant='flat'
-                    isLoading={downloaded !== 0}
-                    isDisabled={downloaded !== 0}
+                    isLoading={installing}
+                    isDisabled={installing || !availableUpdate}
                     color='primary'
                     onPress={() => {
-                        installUpdate().then(
-                            () => {
-                                toast.success(t('updater.installed'), { style: toastStyle, duration: 10000 });
-                                relaunch();
-                            },
-                            (e) => {
-                                toast.error(e.toString(), { style: toastStyle });
-                            }
-                        );
+                        if (!availableUpdate || installing) return;
+                        setInstalling(true);
+                        setDownloaded(0);
+                        availableUpdate
+                            .downloadAndInstall((event) => {
+                                if (event.event === 'Started') setTotal(event.data.contentLength ?? 0);
+                                if (event.event === 'Progress')
+                                    setDownloaded((value) => value + event.data.chunkLength);
+                            })
+                            .then(
+                                () => {
+                                    toast.success(t('updater.installed'), { style: toastStyle, duration: 10000 });
+                                    relaunch();
+                                },
+                                (e) => {
+                                    setInstalling(false);
+                                    toast.error(e.toString(), { style: toastStyle });
+                                }
+                            );
                     }}
                 >
                     {downloaded !== 0

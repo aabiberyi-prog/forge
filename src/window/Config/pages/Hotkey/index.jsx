@@ -1,4 +1,4 @@
-import { unregister, isRegistered } from '@tauri-apps/api/globalShortcut';
+import { unregister, isRegistered } from '@tauri-apps/plugin-global-shortcut';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { CardBody } from '@nextui-org/react';
@@ -10,7 +10,7 @@ import React from 'react';
 import { useConfig } from '../../../../hooks/useConfig';
 import { useToastStyle } from '../../../../hooks';
 import { osType } from '../../../../utils/env';
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 
 const keyMap = {
     Backquote: '`',

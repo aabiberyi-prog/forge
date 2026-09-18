@@ -1,4 +1,4 @@
-import { enable, isEnabled, disable } from 'tauri-plugin-autostart-api';
+import { enable, isEnabled, disable } from '@tauri-apps/plugin-autostart';
 import { DropdownTrigger } from '@nextui-org/react';
 import React, { useState, useEffect } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -7,14 +7,14 @@ import { DropdownItem } from '@nextui-org/react';
 import { useTranslation } from 'react-i18next';
 import { CardBody } from '@nextui-org/react';
 import { Dropdown } from '@nextui-org/react';
-import { info } from 'tauri-plugin-log-api';
+import { info } from '@tauri-apps/plugin-log';
 import { Button } from '@nextui-org/react';
 import { Switch } from '@nextui-org/react';
 import { Slider } from '@nextui-org/react';
 import 'flag-icons/css/flag-icons.min.css';
 import { Input } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 import { useTheme } from 'next-themes';
 
 import { useConfig } from '../../../../hooks/useConfig';
@@ -488,9 +488,7 @@ export default function General() {
                         {uiDensity !== null && (
                             <Dropdown>
                                 <DropdownTrigger>
-                                    <Button variant='bordered'>
-                                        {t(`config.general.ui_density_${uiDensity}`)}
-                                    </Button>
+                                    <Button variant='bordered'>{t(`config.general.ui_density_${uiDensity}`)}</Button>
                                 </DropdownTrigger>
                                 <DropdownMenu
                                     aria-label='ui density'
@@ -498,9 +496,7 @@ export default function General() {
                                         setUiDensity(key);
                                     }}
                                 >
-                                    <DropdownItem key='compact'>
-                                        {t('config.general.ui_density_compact')}
-                                    </DropdownItem>
+                                    <DropdownItem key='compact'>{t('config.general.ui_density_compact')}</DropdownItem>
                                     <DropdownItem key='standard'>
                                         {t('config.general.ui_density_standard')}
                                     </DropdownItem>
@@ -530,10 +526,7 @@ export default function General() {
                                     const val = Array.isArray(v) ? v[0] : v;
                                     setWindowOpacity(val);
                                     // Only shell/background uses this; text panels stay solid
-                                    document.documentElement.style.setProperty(
-                                        '--pot-bg-opacity',
-                                        String(val)
-                                    );
+                                    document.documentElement.style.setProperty('--pot-bg-opacity', String(val));
                                     if (opacityTimer) clearTimeout(opacityTimer);
                                     opacityTimer = setTimeout(() => {
                                         invoke('set_window_opacity', { opacity: val }).catch((e) => {

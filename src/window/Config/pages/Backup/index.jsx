@@ -1,4 +1,4 @@
-import { readTextFile, BaseDirectory } from '@tauri-apps/api/fs';
+import { readTextFile, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { DropdownTrigger } from '@nextui-org/react';
 import { useDisclosure } from '@nextui-org/react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -7,7 +7,7 @@ import { DropdownItem } from '@nextui-org/react';
 import { useTranslation } from 'react-i18next';
 import { CardBody } from '@nextui-org/react';
 import { Dropdown } from '@nextui-org/react';
-import { warn } from 'tauri-plugin-log-api';
+import { warn } from '@tauri-apps/plugin-log';
 import { Button } from '@nextui-org/react';
 import { Input } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
@@ -21,9 +21,9 @@ import WebDavModal from './WebDavModal';
 import AliyunModal from './AliyunModal';
 import * as local from './utils/local';
 import * as aliyun from './utils/aliyun';
-import { invoke } from '@tauri-apps/api';
-import { ask } from '@tauri-apps/api/dialog';
-import { relaunch } from '@tauri-apps/api/process';
+import { invoke } from '@tauri-apps/api/core';
+import { ask } from '@tauri-apps/plugin-dialog';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 let refreshTimer = null;
 
@@ -222,163 +222,163 @@ export default function Backup() {
 
     return (
         <>
-        <Card className='mb-[10px]'>
-            <Toaster />
-            <CardBody>
-                <div className='config-item'>
-                    <div>
-                        <h3>{t('config.backup.import_official')}</h3>
-                        <p className='text-small text-default-400 max-w-[360px]'>
-                            {t('config.backup.import_official_desc')}
-                        </p>
-                    </div>
-                    <Button
-                        color='primary'
-                        variant='flat'
-                        isLoading={importing}
-                        isDisabled={hasOfficial === false}
-                        onPress={onImportOfficial}
-                    >
-                        {hasOfficial === false
-                            ? t('config.backup.import_official_missing')
-                            : t('config.backup.import_official_action')}
-                    </Button>
-                </div>
-            </CardBody>
-        </Card>
-        <Card className='mb-[10px]'>
-            <CardBody>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.backup.type')}</h3>
-                    {backupType !== null && (
-                        <Dropdown>
-                            <DropdownTrigger>
-                                <Button variant='bordered'>{t(`config.backup.${backupType}`)}</Button>
-                            </DropdownTrigger>
-                            <DropdownMenu
-                                aria-label='backup type'
-                                onAction={(key) => {
-                                    setBackupType(key);
-                                }}
-                            >
-                                <DropdownItem key='webdav'>{t('config.backup.webdav')}</DropdownItem>
-                                <DropdownItem key='aliyun'>{t('config.backup.aliyun')}</DropdownItem>
-                                <DropdownItem key='local'>{t('config.backup.local')}</DropdownItem>
-                            </DropdownMenu>
-                        </Dropdown>
-                    )}
-                </div>
-                <div className={backupType !== 'webdav' ? 'hidden' : ''}>
+            <Card className='mb-[10px]'>
+                <Toaster />
+                <CardBody>
                     <div className='config-item'>
-                        <h3 className='my-auto'>{t('config.backup.webdav_url')}</h3>
-                        {davUrl !== null && (
-                            <Input
-                                variant='bordered'
-                                value={davUrl}
-                                label={t('config.backup.webdav_url')}
-                                onValueChange={(v) => {
-                                    setDavUrl(v);
-                                }}
-                                className='max-w-[300px]'
-                            />
-                        )}
+                        <div>
+                            <h3>{t('config.backup.import_official')}</h3>
+                            <p className='text-small text-default-400 max-w-[360px]'>
+                                {t('config.backup.import_official_desc')}
+                            </p>
+                        </div>
+                        <Button
+                            color='primary'
+                            variant='flat'
+                            isLoading={importing}
+                            isDisabled={hasOfficial === false}
+                            onPress={onImportOfficial}
+                        >
+                            {hasOfficial === false
+                                ? t('config.backup.import_official_missing')
+                                : t('config.backup.import_official_action')}
+                        </Button>
                     </div>
+                </CardBody>
+            </Card>
+            <Card className='mb-[10px]'>
+                <CardBody>
                     <div className='config-item'>
-                        <h3 className='my-auto'>{t('config.backup.username')}</h3>
-                        {davUserName !== null && (
-                            <Input
-                                variant='bordered'
-                                value={davUserName}
-                                label={t('config.backup.username')}
-                                onValueChange={(v) => {
-                                    setDavUserName(v);
-                                }}
-                                className='max-w-[300px]'
-                            />
-                        )}
-                    </div>
-                    <div className='config-item'>
-                        <h3 className='my-auto'>{t('config.backup.password')}</h3>
-                        {davPassword !== null && (
-                            <Input
-                                type='password'
-                                variant='bordered'
-                                value={davPassword}
-                                label={t('config.backup.password')}
-                                onValueChange={(v) => {
-                                    setDavPassword(v);
-                                }}
-                                className='max-w-[300px]'
-                            />
-                        )}
-                    </div>
-                </div>
-                <div className={`flex justify-center ${backupType !== 'aliyun' ? 'hidden' : ''}`}>
-                    <img
-                        src={aliyunQrCodeUrl}
-                        className={`h-[200px] mb-2 ${aliyunQrCodeUrl === '' ? 'hidden' : ''}`}
-                    />
-                </div>
-                <div className={`config-item ${backupType !== 'aliyun' ? 'hidden' : ''}`}>
-                    {aliyunUserInfo !== null && (
-                        <>
-                            <h3 className='my-auto'>{t('config.backup.username')}</h3>
-
-                            <Tooltip
-                                content={t('config.backup.logout')}
-                                placement='bottom-end'
-                            >
-                                <Button
-                                    variant='light'
-                                    onClick={() => {
-                                        setAliyunAccessToken('');
-                                        // setAliyunRefreshToken('');
-                                        setAliyunUserInfo(null);
-                                        refreshQrCode();
+                        <h3 className='my-auto'>{t('config.backup.type')}</h3>
+                        {backupType !== null && (
+                            <Dropdown>
+                                <DropdownTrigger>
+                                    <Button variant='bordered'>{t(`config.backup.${backupType}`)}</Button>
+                                </DropdownTrigger>
+                                <DropdownMenu
+                                    aria-label='backup type'
+                                    onAction={(key) => {
+                                        setBackupType(key);
                                     }}
                                 >
-                                    <Avatar
-                                        src={aliyunUserInfo.avatar}
-                                        size='sm'
-                                    />
-                                    <h3 className='my-auto'>{aliyunUserInfo.name}</h3>
-                                </Button>
-                            </Tooltip>
-                        </>
-                    )}
-                </div>
-                <div className='flex justify-around'>
-                    <Button
-                        color='success'
-                        variant='flat'
-                        isLoading={uploading}
-                        onPress={onBackup}
-                    >
-                        {t('config.backup.backup')}
-                    </Button>
-                    <Button
-                        color='secondary'
-                        variant='flat'
-                        onPress={onBackupListOpen}
-                    >
-                        {t('config.backup.restore')}
-                    </Button>
-                </div>
-            </CardBody>
-            <WebDavModal
-                isOpen={isWebDavListOpen}
-                onOpenChange={onWebDavListOpenChange}
-                url={davUrl}
-                username={davUserName}
-                password={davPassword}
-            />
-            <AliyunModal
-                isOpen={isAliyunListOpen}
-                onOpenChange={onAliyunListOpenChange}
-                accessToken={aliyunAccessToken}
-                // refreshToken={aliyunRefreshToken}
-            />
-        </Card>
+                                    <DropdownItem key='webdav'>{t('config.backup.webdav')}</DropdownItem>
+                                    <DropdownItem key='aliyun'>{t('config.backup.aliyun')}</DropdownItem>
+                                    <DropdownItem key='local'>{t('config.backup.local')}</DropdownItem>
+                                </DropdownMenu>
+                            </Dropdown>
+                        )}
+                    </div>
+                    <div className={backupType !== 'webdav' ? 'hidden' : ''}>
+                        <div className='config-item'>
+                            <h3 className='my-auto'>{t('config.backup.webdav_url')}</h3>
+                            {davUrl !== null && (
+                                <Input
+                                    variant='bordered'
+                                    value={davUrl}
+                                    label={t('config.backup.webdav_url')}
+                                    onValueChange={(v) => {
+                                        setDavUrl(v);
+                                    }}
+                                    className='max-w-[300px]'
+                                />
+                            )}
+                        </div>
+                        <div className='config-item'>
+                            <h3 className='my-auto'>{t('config.backup.username')}</h3>
+                            {davUserName !== null && (
+                                <Input
+                                    variant='bordered'
+                                    value={davUserName}
+                                    label={t('config.backup.username')}
+                                    onValueChange={(v) => {
+                                        setDavUserName(v);
+                                    }}
+                                    className='max-w-[300px]'
+                                />
+                            )}
+                        </div>
+                        <div className='config-item'>
+                            <h3 className='my-auto'>{t('config.backup.password')}</h3>
+                            {davPassword !== null && (
+                                <Input
+                                    type='password'
+                                    variant='bordered'
+                                    value={davPassword}
+                                    label={t('config.backup.password')}
+                                    onValueChange={(v) => {
+                                        setDavPassword(v);
+                                    }}
+                                    className='max-w-[300px]'
+                                />
+                            )}
+                        </div>
+                    </div>
+                    <div className={`flex justify-center ${backupType !== 'aliyun' ? 'hidden' : ''}`}>
+                        <img
+                            src={aliyunQrCodeUrl}
+                            className={`h-[200px] mb-2 ${aliyunQrCodeUrl === '' ? 'hidden' : ''}`}
+                        />
+                    </div>
+                    <div className={`config-item ${backupType !== 'aliyun' ? 'hidden' : ''}`}>
+                        {aliyunUserInfo !== null && (
+                            <>
+                                <h3 className='my-auto'>{t('config.backup.username')}</h3>
+
+                                <Tooltip
+                                    content={t('config.backup.logout')}
+                                    placement='bottom-end'
+                                >
+                                    <Button
+                                        variant='light'
+                                        onClick={() => {
+                                            setAliyunAccessToken('');
+                                            // setAliyunRefreshToken('');
+                                            setAliyunUserInfo(null);
+                                            refreshQrCode();
+                                        }}
+                                    >
+                                        <Avatar
+                                            src={aliyunUserInfo.avatar}
+                                            size='sm'
+                                        />
+                                        <h3 className='my-auto'>{aliyunUserInfo.name}</h3>
+                                    </Button>
+                                </Tooltip>
+                            </>
+                        )}
+                    </div>
+                    <div className='flex justify-around'>
+                        <Button
+                            color='success'
+                            variant='flat'
+                            isLoading={uploading}
+                            onPress={onBackup}
+                        >
+                            {t('config.backup.backup')}
+                        </Button>
+                        <Button
+                            color='secondary'
+                            variant='flat'
+                            onPress={onBackupListOpen}
+                        >
+                            {t('config.backup.restore')}
+                        </Button>
+                    </div>
+                </CardBody>
+                <WebDavModal
+                    isOpen={isWebDavListOpen}
+                    onOpenChange={onWebDavListOpenChange}
+                    url={davUrl}
+                    username={davUserName}
+                    password={davPassword}
+                />
+                <AliyunModal
+                    isOpen={isAliyunListOpen}
+                    onOpenChange={onAliyunListOpenChange}
+                    accessToken={aliyunAccessToken}
+                    // refreshToken={aliyunRefreshToken}
+                />
+            </Card>
         </>
     );
 }

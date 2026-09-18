@@ -1,13 +1,14 @@
-import { readDir, BaseDirectory, readTextFile, exists } from '@tauri-apps/api/fs';
+import { readDir, BaseDirectory, readTextFile, exists } from '@tauri-apps/plugin-fs';
 import { DragDropContext, Draggable, Droppable } from 'react-beautiful-dnd';
-import { appWindow, currentMonitor, LogicalSize } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { currentMonitor } from '@tauri-apps/api/window';
 import { appConfigDir, join } from '@tauri-apps/api/path';
-import { convertFileSrc } from '@tauri-apps/api/tauri';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { Spacer, Button, Slider } from '@nextui-org/react';
 import { AiFillCloseCircle } from 'react-icons/ai';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 import { BsPinFill } from 'react-icons/bs';
 import { MdOutlineSubtitles, MdOutlineSubtitlesOff } from 'react-icons/md';
 import { Tooltip } from '@nextui-org/react';
@@ -18,8 +19,10 @@ import TargetArea from './components/TargetArea';
 import { osType } from '../../utils/env';
 import { useConfig } from '../../hooks';
 import { store } from '../../utils/store';
-import { info } from 'tauri-plugin-log-api';
+import { fitWindowHeight } from '../../utils/window_size';
+import { info } from '@tauri-apps/plugin-log';
 import { useTranslation } from 'react-i18next';
+const appWindow = getCurrentWebviewWindow();
 
 let blurTimeout = null;
 let resizeTimeout = null;
@@ -149,12 +152,7 @@ export default function Translate() {
             const minH = isCompact ? 160 : 200;
             height = Math.max(minH, Math.min(height, maxH));
 
-            const monitor = await currentMonitor();
-            const factor = monitor.scaleFactor;
-            let size = await appWindow.outerSize();
-            size = size.toLogical(factor);
-            // Keep current width; only adjust height
-            await appWindow.setSize(new LogicalSize(Math.round(size.width), Math.round(height)));
+            await fitWindowHeight(appWindow, height);
         } catch (e) {
             info(`fitWindowToContent: ${e}`);
         }
@@ -237,7 +235,7 @@ export default function Translate() {
                 }
                 resizeTimeout = setTimeout(async () => {
                     if (appWindow.label === 'translate') {
-                        let size = await appWindow.outerSize();
+                        let size = await appWindow.innerSize();
                         const monitor = await currentMonitor();
                         const factor = monitor.scaleFactor;
                         size = size.toLogical(factor);
@@ -260,11 +258,11 @@ export default function Translate() {
         let temp = {};
         for (const serviceType of serviceTypeList) {
             temp[serviceType] = {};
-            if (await exists(`plugins/${serviceType}`, { dir: BaseDirectory.AppConfig })) {
-                const plugins = await readDir(`plugins/${serviceType}`, { dir: BaseDirectory.AppConfig });
+            if (await exists(`plugins/${serviceType}`, { baseDir: BaseDirectory.AppConfig })) {
+                const plugins = await readDir(`plugins/${serviceType}`, { baseDir: BaseDirectory.AppConfig });
                 for (const plugin of plugins) {
                     const infoStr = await readTextFile(`plugins/${serviceType}/${plugin.name}/info.json`, {
-                        dir: BaseDirectory.AppConfig,
+                        baseDir: BaseDirectory.AppConfig,
                     });
                     let pluginInfo = JSON.parse(infoStr);
                     if ('icon' in pluginInfo) {
@@ -408,13 +406,7 @@ export default function Translate() {
                     </Button>
                     {/* Toggle original text only; speak/copy/clear stay available */}
                     {hideSource !== null && (
-                        <Tooltip
-                            content={
-                                hideSource
-                                    ? t('translate.show_source')
-                                    : t('translate.hide_source')
-                            }
-                        >
+                        <Tooltip content={hideSource ? t('translate.show_source') : t('translate.hide_source')}>
                             <Button
                                 isIconOnly
                                 size='sm'
@@ -454,10 +446,7 @@ export default function Translate() {
                                 onChange={(v) => {
                                     const val = Array.isArray(v) ? v[0] : v;
                                     setWindowOpacity(val);
-                                    document.documentElement.style.setProperty(
-                                        '--pot-bg-opacity',
-                                        String(val)
-                                    );
+                                    document.documentElement.style.setProperty('--pot-bg-opacity', String(val));
                                     if (translateOpacityTimer) clearTimeout(translateOpacityTimer);
                                     translateOpacityTimer = setTimeout(() => {
                                         invoke('set_window_opacity', { opacity: val }).catch(() => {});

@@ -1,4 +1,4 @@
-import { fetch, Body } from '@tauri-apps/api/http';
+import { fetch, Body } from '../../../utils/http.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function translate(text, from, to) {

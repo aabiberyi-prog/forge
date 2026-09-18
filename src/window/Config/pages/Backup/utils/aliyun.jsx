@@ -1,5 +1,5 @@
-import { invoke } from '@tauri-apps/api';
-import { Body, fetch } from '@tauri-apps/api/http';
+import { invoke } from '@tauri-apps/api/core';
+import { Body, fetch } from '../../../../../utils/http.js';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 
 export async function backup(token, name) {

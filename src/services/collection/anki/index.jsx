@@ -1,4 +1,4 @@
-import { fetch, Body } from '@tauri-apps/api/http';
+import { fetch, Body } from '../../../utils/http.js';
 import { store } from '../../../utils/store';
 
 export async function collection(source, target, options = {}) {

@@ -1,4 +1,4 @@
-import { fetch } from '@tauri-apps/api/http';
+import { fetch } from '../../../utils/http.js';
 import CryptoJS from 'crypto-js';
 import { nanoid } from 'nanoid';
 

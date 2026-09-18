@@ -1,11 +1,11 @@
-import { appWindow } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { BrowserRouter } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { warn } from 'tauri-plugin-log-api';
+import { warn } from '@tauri-apps/plugin-log';
 import React, { useEffect } from 'react';
 import { useTheme } from 'next-themes';
 
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import Screenshot from './window/Screenshot';
 import Translate from './window/Translate';
 import Recognize from './window/Recognize';
@@ -15,6 +15,7 @@ import Config from './window/Config';
 import { useConfig } from './hooks';
 import './style.css';
 import './i18n';
+const appWindow = getCurrentWebviewWindow();
 
 const windowMap = {
     translate: <Translate />,
@@ -35,7 +36,7 @@ export default function App() {
     const { i18n } = useTranslation();
 
     useEffect(() => {
-        store.load();
+        store.reload();
     }, []);
 
     useEffect(() => {

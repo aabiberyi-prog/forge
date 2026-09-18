@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { currentMonitor } from '@tauri-apps/api/window';
-import { convertFileSrc } from '@tauri-apps/api/tauri';
-import { appWindow } from '@tauri-apps/api/window';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit } from '@tauri-apps/api/event';
-import { warn } from 'tauri-plugin-log-api';
-import { invoke } from '@tauri-apps/api';
+import { warn } from '@tauri-apps/plugin-log';
+import { invoke } from '@tauri-apps/api/core';
+const appWindow = getCurrentWebviewWindow();
 
 export default function Screenshot() {
     const [imgurl, setImgurl] = useState('');
