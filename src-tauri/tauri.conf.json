@@ -1,84 +1,62 @@
 {
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Pot Forge",
+    "mainBinaryName": "Pot Forge",
+    "version": "3.0.8",
+    "identifier": "com.aabiber.pot-forge",
     "build": {
-        "beforeDevCommand": "pnpm dev",
-        "beforeBuildCommand": "pnpm build",
-        "devPath": "http://localhost:1420",
-        "distDir": "../dist",
-        "withGlobalTauri": false
+        "beforeDevCommand": "node .scripts/run-tool.cjs vite",
+        "beforeBuildCommand": "node .scripts/run-tool.cjs vite build",
+        "devUrl": "http://localhost:1420",
+        "frontendDist": "../dist"
     },
-    "package": {
-        "productName": "Pot Forge",
-        "version": "3.0.8"
-    },
-    "tauri": {
-        "allowlist": {
-            "all": false,
-            "shell": {
-                "all": true,
-                "open": ".*"
-            },
-            "path": {
-                "all": true
-            },
-            "window": {
-                "all": true
-            },
-            "clipboard": {
-                "all": true
-            },
-            "globalShortcut": {
-                "all": true
-            },
-            "notification": {
-                "all": true
-            },
-            "http": {
-                "all": true,
-                "request": true,
-                "scope": [
-                    "http://**",
-                    "https://**"
-                ]
-            },
-            "os": {
-                "all": true
-            },
-            "protocol": {
-                "asset": true,
-                "assetScope": [
-                    "$CACHE/**",
-                    "$CONFIG/**"
-                ]
-            },
-            "fs": {
-                "all": true,
+    "app": {
+        "withGlobalTauri": false,
+        "windows": [
+            {
+                "title": "Daemon",
+                "label": "daemon",
+                "visible": false,
+                "url": "daemon.html",
+                "useHttpsScheme": true
+            }
+        ],
+        "security": {
+            "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob: https: http:; font-src 'self' data:; media-src 'self' asset: http://asset.localhost https://asset.localhost data: blob: https: http:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost http: https: ws: wss:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'",
+            "devCsp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob: https: http:; font-src 'self' data:; media-src 'self' asset: http://asset.localhost https://asset.localhost data: blob: https: http:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost http: https: ws: wss:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'",
+            "assetProtocol": {
+                "enable": true,
                 "scope": [
                     "$APPCONFIG/**",
                     "$APPCACHE/**"
                 ]
-            },
-            "dialog": {
-                "open": true,
-                "save": true
             }
+        }
+    },
+    "bundle": {
+        "active": true,
+        "category": "Utility",
+        "copyright": "GPLv3",
+        "targets": "all",
+        "longDescription": "Pot Forge — fork of pot-desktop with opacity control and built-in Edge TTS",
+        "shortDescription": "Pot Forge",
+        "externalBin": [],
+        "resources": [],
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ],
+        "macOS": {
+            "entitlements": null,
+            "exceptionDomain": "",
+            "frameworks": [],
+            "providerShortName": null,
+            "signingIdentity": null
         },
-        "bundle": {
-            "active": true,
-            "category": "Utility",
-            "copyright": "GPLv3",
-            "targets": "all",
-            "identifier": "com.aabiber.pot-forge",
-            "longDescription": "Pot Forge — fork of pot-desktop with opacity control and built-in Edge TTS",
-            "shortDescription": "Pot Forge",
-            "externalBin": [],
-            "resources": [],
-            "icon": [
-                "icons/32x32.png",
-                "icons/128x128.png",
-                "icons/128x128@2x.png",
-                "icons/icon.icns",
-                "icons/icon.ico"
-            ],
+        "linux": {
             "deb": {
                 "depends": [
                     "libxdo-dev",
@@ -94,35 +72,13 @@
                     "libxrandr2",
                     "tesseract-ocr"
                 ]
-            },
-            "macOS": {
-                "entitlements": null,
-                "exceptionDomain": "",
-                "frameworks": [],
-                "providerShortName": null,
-                "signingIdentity": null
             }
         },
-        "security": {
-            "csp": "default-src * data: ; img-src * 'self' asset: https: data: ; style-src * 'unsafe-inline'; worker-src 'self' blob: ; script-src * 'unsafe-eval';",
-            "devCsp": "default-src * data: ; img-src * 'self' asset: https: data: ; style-src * 'unsafe-inline'; worker-src 'self' blob: ; script-src * 'unsafe-eval';"
-        },
-        "windows": [
-            {
-                "title": "Daemon",
-                "label": "daemon",
-                "visible": false,
-                "url": "daemon.html",
-                "additionalBrowserArgs": "--disable-web-security"
-            }
-        ],
-        "systemTray": {
-            "iconPath": "icons/icon.png",
-            "iconAsTemplate": true
-        },
+        "createUpdaterArtifacts": "v1Compatible",
+        "licenseFile": "../LICENSE"
+    },
+    "plugins": {
         "updater": {
-            "active": true,
-            "dialog": false,
             "endpoints": [
                 "https://github.com/aabiberyi-prog/forge/releases/download/updater/update.json"
             ],

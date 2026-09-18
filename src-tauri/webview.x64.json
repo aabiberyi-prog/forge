@@ -1,37 +1,25 @@
 {
-    "tauri": {
-        "systemTray": {
-            "iconPath": "icons/icon.ico",
-            "iconAsTemplate": true
-        },
-        "bundle": {
-            "windows": {
-                "certificateThumbprint": null,
-                "digestAlgorithm": "sha256",
-                "timestampUrl": "",
-                "webviewInstallMode": {
-                    "type": "fixedRuntime",
-                    "path": "./Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x64/"
-                },
-                "nsis": {
-                    "displayLanguageSelector": true,
-                    "installerIcon": "icons/icon.ico",
-                    "license": "../LICENSE",
-                    "installMode": "perMachine",
-                    "languages": [
-                        "SimpChinese",
-                        "TradChinese",
-                        "English"
-                    ]
-                }
+    "bundle": {
+        "windows": {
+            "certificateThumbprint": null,
+            "digestAlgorithm": "sha256",
+            "timestampUrl": "",
+            "webviewInstallMode": {
+                "type": "fixedRuntime",
+                "path": "./Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x64/"
+            },
+            "nsis": {
+                "displayLanguageSelector": true,
+                "installerIcon": "icons/icon.ico",
+                "installMode": "perMachine",
+                "languages": ["SimpChinese", "TradChinese", "English"]
             }
         },
+        "licenseFile": "../LICENSE"
+    },
+    "plugins": {
         "updater": {
-            "active": true,
-            "dialog": false,
-            "endpoints": [
-                "https://github.com/aabiberyi-prog/forge/releases/download/updater/update-fix-runtime.json"
-            ],
+            "endpoints": ["https://github.com/aabiberyi-prog/forge/releases/download/updater/update-fix-runtime.json"],
             "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3NEM0NTE4NkU2RUJEQjYKUldTMnZXNXVHRVZNdDFIMitKZGptSUMvTjRPSTNIalpXNXNoekFhbmF5SUM5SUNsbTMrNVAxR2IK"
         }
     }
