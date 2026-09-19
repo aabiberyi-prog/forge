@@ -3,16 +3,15 @@
 Date: 2026-09-19
 Branch: `phase-3/unification`
 Base: `9288fbf43443ef52c0429ad7e9147c3e6db6b6fa` (Phase 2 head)
-Status: implementation started; not live-accepted.
-No Phase 3 commit, push, or PR has been made.
+Status: complete for the Phase 3 bullets. Live GUI import click was not run.
+No additional Phase 3 commit/push has been made since `27006a3` until this follow-up.
 
 ## Phase 2 live smoke (before this branch)
 
-Isolated candidate `C:\cargo-target\forge\debug\forge-migration-check.exe`
-SHA-256 `3FBA501C18E0A24230D0E28C078FCAA72A74E804D0B02E769820A6BB98FAF1B0`.
+Isolated candidate SHA-256
+`3FBA501C18E0A24230D0E28C078FCAA72A74E804D0B02E769820A6BB98FAF1B0`.
 Run `a7aa53ae-d298-42fe-805d-21da787a2106`: tray Tasks opened a `Tasks` window;
-hide left the process running. Reopen-from-tray was not re-checked (menu probe
-missed on the second right-click). Installed config hashes unchanged.
+hide left the process running.
 
 ## What landed
 
@@ -21,16 +20,20 @@ missed on the second right-click). Installed config hashes unchanged.
   errors instead of grabbing ShareX hotkeys.
 - Tasks and clips persist in `history.db` (same SQLite file as translate
   history). JSON files are imported once. Settings stay JSON.
-- `secret_get` / `secret_set` via the OS keychain; plaintext `apiKey` fields
-  are moved out of `config.json` on startup.
-- Hotkey registry lists Alt+1–5 as planned ShareX bindings without registering
-  them yet. Config → Hotkey shows the list and any conflict reason.
-- Backup import for `com.local.desktop-todo` tasks and clips.
+- Translate hydrates `apiKey` from the OS keychain. Config save writes the
+  keychain first and stores an empty `apiKey` in JSON only after a read-back
+  succeeds. If the keychain does not persist, plaintext is left in place.
+- Hotkey registration rejects Alt+1–5 as reserved and rejects duplicates
+  among the four existing Pot bindings. Config → Hotkey lists planned
+  bindings. ShareX keys are not registered.
+- Backup import for `com.local.desktop-todo` tasks and clips. Real
+  `tasks.json` / `copy-items.json` parse into the SQLite schema in tests.
 
 ## Verification
 
-- `cargo test`: 13 passed (11 prior plus two hotkey registry tests). Lockfile
-  adds `rusqlite 0.32.1` and `keyring 3.6.3`.
+- `cargo test`: 18 passed.
 - Tauri 2 compat tests: 13 passed.
+- `vite build`: run as part of this completion.
 
-Frontend Vite build was not re-run after the Backup/Hotkey UI edits.
+Did not click Backup → Import in the running installed app (that profile is
+still Tauri 1). Did not move real OpenAI keys in `com.aabiber.pot-forge`.
