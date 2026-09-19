@@ -73,10 +73,28 @@ export default function Screenshot() {
         const width = Math.floor(bounds.width);
         const height = Math.floor(bounds.height);
         if (mode === 'scroll') {
+            const monitor = await currentMonitor();
+            const originX = monitor?.position?.x ?? 0;
+            const originY = monitor?.position?.y ?? 0;
             appWindow.hide();
             await appWindow.setAlwaysOnTop(false);
-            await invoke('scrolling_capture', { left, top, width, height });
-            await appWindow.close();
+            const result = await invoke('scrolling_capture', {
+                left: originX + left,
+                top: originY + top,
+                width,
+                height,
+            });
+            if (result?.stopped === 'cancel' || !result?.cutPath) {
+                await appWindow.close();
+                return;
+            }
+            setCutUrl(`${convertFileSrc(result.cutPath)}?t=${Date.now()}`);
+            setStage('annotate');
+            await appWindow.setFullscreen(false);
+            await appWindow.center();
+            await appWindow.setSize(new LogicalSize(960, 720));
+            await appWindow.show();
+            await appWindow.setFocus();
             return;
         }
         if (mode === 'ocr') {

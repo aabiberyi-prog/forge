@@ -6,6 +6,7 @@ pub mod import_todo;
 pub mod json_store;
 pub mod merge;
 pub mod panel;
+pub mod pins;
 pub mod recorder;
 pub mod scroll;
 pub mod secrets;

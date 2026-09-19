@@ -29,6 +29,7 @@ use features::scroll::*;
 use features::hotkeys::*;
 use features::import_todo::*;
 use features::panel::*;
+use features::pins::*;
 use features::secrets::*;
 use features::tasks::*;
 use hotkey::*;
@@ -234,7 +235,14 @@ fn main() {
             recording_status,
             toggle_screen_recording,
             scrolling_capture,
+            cancel_scrolling_capture,
             scroll_capture_available,
+            open_pin_from_path,
+            pin_from_clipboard,
+            get_pin_path,
+            copy_pin_image,
+            list_pin_history,
+            open_pin_history_window,
             secret_get,
             secret_set,
             list_hotkey_registry,

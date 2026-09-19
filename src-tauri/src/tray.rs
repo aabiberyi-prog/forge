@@ -79,11 +79,12 @@ fn build_menu(
     mode: &str,
     monitor: bool,
 ) -> tauri::Result<Menu<tauri::Wry>> {
-    let labels = labels(language);
+    let table = labels(language);
     let text = |id: &str| {
-        labels
+        table
             .iter()
             .find(|(key, _)| *key == id)
+            .or_else(|| labels("en").iter().find(|(key, _)| *key == id))
             .map(|(_, value)| *value)
             .unwrap_or("")
     };
@@ -127,6 +128,9 @@ fn build_menu(
         .text("panel", text("panel"))
         .text("capture", text("capture"))
         .text("pin", text("pin"))
+        .text("pin_file", text("pin_file"))
+        .text("pin_clipboard", text("pin_clipboard"))
+        .text("pin_history", text("pin_history"))
         .text("record", text("record"))
         .text("scroll", text("scroll"))
         .text("check_update", text("check_update"))
@@ -146,6 +150,28 @@ fn handle_menu(app: &AppHandle, event: MenuEvent) {
         "panel" => panel_window(),
         "capture" => capture_region(),
         "pin" => pin_capture(),
+        "pin_file" => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                use tauri_plugin_dialog::DialogExt;
+                if let Some(file) = app
+                    .dialog()
+                    .file()
+                    .add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif"])
+                    .blocking_pick_file()
+                {
+                    if let Ok(path) = file.into_path() {
+                        let _ = crate::features::pins::open_pin_from_path(
+                            path.to_string_lossy().into_owned(),
+                        );
+                    }
+                }
+            });
+        }
+        "pin_clipboard" => {
+            let _ = crate::features::pins::pin_from_clipboard();
+        }
+        "pin_history" => crate::features::pins::open_pin_history_window(),
         "record" => toggle_recording(),
         "scroll" => start_scrolling_capture(),
         "check_update" => updater_window(),
@@ -220,6 +246,9 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("panel", "Tasks"),
             ("capture", "Capture"),
             ("pin", "Pin"),
+            ("pin_file", "Pin from file"),
+            ("pin_clipboard", "Pin from clipboard"),
+            ("pin_history", "Pin from history"),
             ("record", "Record"),
             ("scroll", "Scrolling capture"),
             ("check_update", "Check Update"),
@@ -241,6 +270,9 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("panel", "任务"),
             ("capture", "截图"),
             ("pin", "钉住"),
+            ("pin_file", "从文件钉住"),
+            ("pin_clipboard", "从剪贴板钉住"),
+            ("pin_history", "从历史钉住"),
             ("record", "录制"),
             ("scroll", "滚动截图"),
             ("check_update", "检查更新"),

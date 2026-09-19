@@ -1,8 +1,56 @@
 use image::{Rgba, RgbaImage};
 use log::info;
+use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const STRIP: u32 = 48;
 const MAX_FRAMES: usize = 40;
+const SAMPLE_X: u32 = 4;
+
+static SCROLL_CANCEL: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrollCaptureResult {
+    pub cut_path: Option<String>,
+    pub frames: u32,
+    pub stopped: String,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn cancel_scrolling_capture() {
+    SCROLL_CANCEL.store(true, Ordering::SeqCst);
+}
+
+pub fn crop_offset(region: i32, monitor: i32) -> Option<u32> {
+    let offset = region - monitor;
+    if offset < 0 {
+        None
+    } else {
+        Some(offset as u32)
+    }
+}
+
+pub fn frames_nearly_equal(a: &RgbaImage, b: &RgbaImage) -> bool {
+    if a.width() != b.width() || a.height() != b.height() {
+        return false;
+    }
+    let mut sad = 0i64;
+    let mut count = 0i64;
+    let step = SAMPLE_X.max(1);
+    for y in (0..a.height()).step_by(2) {
+        for x in (0..a.width()).step_by(step as usize) {
+            let pa = a.get_pixel(x, y).0;
+            let pb = b.get_pixel(x, y).0;
+            sad += (pa[0] as i64 - pb[0] as i64).abs()
+                + (pa[1] as i64 - pb[1] as i64).abs()
+                + (pa[2] as i64 - pb[2] as i64).abs();
+            count += 1;
+        }
+    }
+    count > 0 && sad / count < 6
+}
 
 /// Find how many top rows of `next` overlap the bottom of `prev`.
 /// Uses a 1D phase-correlation-style peak on row signatures (SAD).
@@ -11,7 +59,7 @@ pub fn overlap_rows(prev: &RgbaImage, next: &RgbaImage) -> u32 {
         return 0;
     }
     let height = prev.height().min(next.height());
-    let max_overlap = height.saturating_sub(2).min(height * 9 / 10);
+    let max_overlap = height.saturating_sub(2);
     let min_overlap = STRIP.min(height / 3).max(4);
     let mut best_overlap = 0u32;
     let mut best_score = i64::MAX;
@@ -24,7 +72,8 @@ pub fn overlap_rows(prev: &RgbaImage, next: &RgbaImage) -> u32 {
         }
         overlap += 1;
     }
-    let pixel_count = (best_overlap * prev.width()).max(1) as i64;
+    let sampled_width = (prev.width() / SAMPLE_X.max(1)).max(1);
+    let pixel_count = (best_overlap * sampled_width).max(1) as i64;
     if best_score / pixel_count > 18 {
         0
     } else {
@@ -36,8 +85,9 @@ fn strip_sad(prev: &RgbaImage, next: &RgbaImage, overlap: u32) -> i64 {
     let mut sad = 0i64;
     let width = prev.width();
     let prev_top = prev.height() - overlap;
+    let step = SAMPLE_X.max(1);
     for y in 0..overlap {
-        for x in 0..width {
+        for x in (0..width).step_by(step as usize) {
             let a = prev.get_pixel(x, prev_top + y).0;
             let b = next.get_pixel(x, y).0;
             sad += (a[0] as i64 - b[0] as i64).abs()
@@ -82,17 +132,14 @@ fn unique_row_image(width: u32, height: u32, start_row: u32) -> RgbaImage {
 #[cfg(windows)]
 mod win {
     use super::*;
-    use crate::features::capture::{
-        cache_cut_path, capture_filename, capture_save_dir, copy_png_bytes, record_capture_history,
-    };
+    use crate::features::capture::cache_cut_path;
     use crate::APP;
     use std::fs;
     use std::io::Cursor;
     use std::thread;
     use std::time::Duration;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-        MOUSEEVENTF_WHEEL, MOUSEINPUT,
+        SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_WHEEL, MOUSEINPUT,
     };
     use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
 
@@ -117,36 +164,52 @@ mod win {
         }
     }
 
+    fn escape_pressed() -> bool {
+        unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x1B) as u16 & 0x8000 != 0 }
+    }
+
+    fn wait_interruptible(total_ms: u64) -> bool {
+        let mut waited = 0u64;
+        while waited < total_ms {
+            if SCROLL_CANCEL.load(Ordering::SeqCst) || escape_pressed() {
+                SCROLL_CANCEL.store(true, Ordering::SeqCst);
+                return true;
+            }
+            thread::sleep(Duration::from_millis(50));
+            waited += 50;
+        }
+        false
+    }
+
     fn focus_and_scroll(x: i32, y: i32) {
         unsafe {
             let _ = SetCursorPos(x, y);
         }
-        thread::sleep(Duration::from_millis(40));
-        send_mouse(MOUSEEVENTF_LEFTDOWN, 0);
-        send_mouse(MOUSEEVENTF_LEFTUP, 0);
-        thread::sleep(Duration::from_millis(80));
+        if wait_interruptible(40) {
+            return;
+        }
         send_mouse(MOUSEEVENTF_WHEEL, -WHEEL_DELTA * 3);
     }
 
-    fn grab_region(left: u32, top: u32, width: u32, height: u32) -> Result<RgbaImage, String> {
+    fn grab_region(left: i32, top: i32, width: u32, height: u32) -> Result<RgbaImage, String> {
         let monitors = xcap::Monitor::all().map_err(|error| error.to_string())?;
         for monitor in monitors {
             let mx = monitor.x().map_err(|error| error.to_string())?;
             let my = monitor.y().map_err(|error| error.to_string())?;
-            let mw = monitor.width().map_err(|error| error.to_string())?;
-            let mh = monitor.height().map_err(|error| error.to_string())?;
-            let right = left + width;
-            let bottom = top + height;
-            if (left as i32) >= mx
-                && (top as i32) >= my
-                && (right as i32) <= mx + mw as i32
-                && (bottom as i32) <= my + mh as i32
-            {
+            let mw = monitor.width().map_err(|error| error.to_string())? as i32;
+            let mh = monitor.height().map_err(|error| error.to_string())? as i32;
+            let right = left + width as i32;
+            let bottom = top + height as i32;
+            if left >= mx && top >= my && right <= mx + mw && bottom <= my + mh {
+                let Some(crop_x) = crop_offset(left, mx) else {
+                    continue;
+                };
+                let Some(crop_y) = crop_offset(top, my) else {
+                    continue;
+                };
                 let full = monitor
                     .capture_image()
                     .map_err(|error| error.to_string())?;
-                let crop_x = left.saturating_sub(mx as u32);
-                let crop_y = top.saturating_sub(my as u32);
                 let cropped = image::imageops::crop_imm(&full, crop_x, crop_y, width, height);
                 return Ok(cropped.to_image());
             }
@@ -154,29 +217,51 @@ mod win {
         Err("region is not inside a single monitor".into())
     }
 
-    pub fn run(left: u32, top: u32, width: u32, height: u32) -> Result<String, String> {
+    pub fn run(left: i32, top: i32, width: u32, height: u32) -> Result<ScrollCaptureResult, String> {
+        SCROLL_CANCEL.store(false, Ordering::SeqCst);
         if width < 16 || height < 16 {
             return Err("scroll region is too small".into());
         }
         let mut frames = Vec::new();
         frames.push(grab_region(left, top, width, height)?);
-        let cx = (left + width / 2) as i32;
-        let cy = (top + height / 2) as i32;
+        let cx = left + (width / 2) as i32;
+        let cy = top + (height / 2) as i32;
+        let mut stopped = "max_frames".to_string();
         for _ in 0..MAX_FRAMES {
+            if SCROLL_CANCEL.load(Ordering::SeqCst) || escape_pressed() {
+                stopped = "cancel".into();
+                break;
+            }
             focus_and_scroll(cx, cy);
-            thread::sleep(Duration::from_millis(220));
+            if wait_interruptible(200) {
+                stopped = "cancel".into();
+                break;
+            }
             let next = grab_region(left, top, width, height)?;
+            if frames_nearly_equal(frames.last().unwrap(), &next) {
+                stopped = "no_change".into();
+                break;
+            }
+            if frames.len() > 1 && frames.iter().any(|prev| frames_nearly_equal(prev, &next)) {
+                stopped = "repeat".into();
+                break;
+            }
             let overlap = overlap_rows(frames.last().unwrap(), &next);
-            if overlap < 8 {
-                frames.push(next);
+            if overlap == 0 {
+                stopped = "low_confidence".into();
                 break;
             }
             if overlap >= next.height().saturating_sub(2) {
+                stopped = "end".into();
                 break;
             }
             frames.push(next);
+            stopped = "end".into();
         }
-        info!("Scrolling capture gathered {} frames", frames.len());
+        info!(
+            "Scrolling capture gathered {} frames ({stopped})",
+            frames.len()
+        );
         let stitched = stitch_frames(&frames)?;
         let mut encoded = Cursor::new(Vec::new());
         stitched
@@ -186,21 +271,27 @@ mod win {
         let app = APP.get().ok_or("app handle is not ready")?;
         let cut_path = cache_cut_path(app)?;
         fs::write(&cut_path, &bytes).map_err(|error| error.to_string())?;
-        let dir = capture_save_dir();
-        fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-        let save_path = dir.join(capture_filename(std::time::SystemTime::now()));
-        fs::write(&save_path, &bytes).map_err(|error| error.to_string())?;
-        copy_png_bytes(&bytes)?;
-        let _ = record_capture_history(app, &save_path, "scroll");
-        Ok(save_path.to_string_lossy().to_string())
+        Ok(ScrollCaptureResult {
+            cut_path: Some(cut_path.to_string_lossy().to_string()),
+            frames: frames.len() as u32,
+            stopped,
+            error: None,
+        })
     }
 }
 
 #[tauri::command]
-pub fn scrolling_capture(left: u32, top: u32, width: u32, height: u32) -> Result<String, String> {
+pub async fn scrolling_capture(
+    left: i32,
+    top: i32,
+    width: u32,
+    height: u32,
+) -> Result<ScrollCaptureResult, String> {
     #[cfg(windows)]
     {
-        win::run(left, top, width, height)
+        tauri::async_runtime::spawn_blocking(move || win::run(left, top, width, height))
+            .await
+            .map_err(|error| error.to_string())?
     }
     #[cfg(not(windows))]
     {
@@ -245,5 +336,28 @@ mod tests {
         assert_eq!(stitched.width(), 8);
         assert!(stitched.height() > 20);
         assert!(stitched.height() <= 40);
+    }
+
+    #[test]
+    fn signed_monitor_offset_maps_left_of_primary() {
+        assert_eq!(crop_offset(-100, -1920), Some(1820));
+        assert_eq!(crop_offset(10, 0), Some(10));
+        assert_eq!(crop_offset(-10, 0), None);
+    }
+
+    #[test]
+    fn identical_frames_are_end_of_content() {
+        let frame = unique_row_image(10, 20, 3);
+        assert!(frames_nearly_equal(&frame, &frame));
+        let other = unique_row_image(10, 20, 80);
+        assert!(!frames_nearly_equal(&frame, &other));
+    }
+
+    #[test]
+    fn cancel_flag_is_readable() {
+        SCROLL_CANCEL.store(true, Ordering::SeqCst);
+        assert!(SCROLL_CANCEL.load(Ordering::SeqCst));
+        SCROLL_CANCEL.store(false, Ordering::SeqCst);
+        assert!(!SCROLL_CANCEL.load(Ordering::SeqCst));
     }
 }

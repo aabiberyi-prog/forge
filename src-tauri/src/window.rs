@@ -79,7 +79,7 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
             let _ = v.unminimize();
             let _ = v.show();
             let keep_top = label != "panel"
-                && label != "pin"
+                && !label.starts_with("pin")
                 && (match get("translate_always_on_top") {
                     Some(val) => val.as_bool().unwrap_or(false),
                     None => false,
@@ -92,7 +92,7 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
             // Restore unpinned unless user/config wants always-on-top
             if keep_top {
                 let _ = v.set_always_on_top(true);
-            } else if label != "panel" && label != "pin" {
+            } else if label != "panel" && !label.starts_with("pin") {
                 let _ = v.set_always_on_top(false);
             }
             (v, true)
@@ -488,9 +488,28 @@ pub fn pin_capture() {
 }
 
 pub fn pin_window() {
-    let (window, _exists) = build_window("pin", "Pin");
+    if let Some(app) = crate::APP.get() {
+        if crate::features::pins::pin_from_capture_cache(app).is_ok() {
+            return;
+        }
+    }
+    open_named_pin("pin-1");
+}
+
+pub fn open_named_pin(label: &str) {
+    let (window, _exists) = build_window(label, "Pin");
     let _ = window.set_skip_taskbar(true);
     let _ = window.set_always_on_top(true);
+    let _ = window.set_resizable(true);
+    let _ = window.show();
+}
+
+pub fn open_pin_history() {
+    let (window, _exists) = build_window("pin-history", "Pin from history");
+    let _ = window.set_skip_taskbar(false);
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_size(tauri::LogicalSize::new(420.0, 520.0));
+    let _ = window.center();
     let _ = window.show();
 }
 

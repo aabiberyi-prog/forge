@@ -14,6 +14,7 @@ import { store } from './utils/store';
 import Config from './window/Config';
 import Panel from './window/Panel';
 import Pin from './window/Pin';
+import PinHistory from './window/Pin/History';
 import { useConfig } from './hooks';
 import './style.css';
 import './i18n';
@@ -126,5 +127,12 @@ export default function App() {
         }
     }, [appFont, appFallbackFont, appFontSize]);
 
-    return <BrowserRouter>{windowMap[appWindow.label]}</BrowserRouter>;
+    const label = appWindow.label;
+    const view =
+        label === 'pin-history'
+            ? <PinHistory />
+            : label === 'pin' || label.startsWith('pin-')
+              ? <Pin />
+              : windowMap[label];
+    return <BrowserRouter>{view}</BrowserRouter>;
 }

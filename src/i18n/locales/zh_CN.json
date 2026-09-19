@@ -302,6 +302,18 @@
             "tool_magnify": "放大",
             "tool_crop": "裁剪"
         },
+        "pin": {
+            "title": "钉住",
+            "minimize": "最小化",
+            "copy": "复制",
+            "reset": "重置",
+            "close": "关闭",
+            "scale": "缩放",
+            "opacity": "透明",
+            "missing": "图片文件不存在",
+            "copy_failed": "复制失败",
+            "history_title": "从历史钉住"
+        },
         "updater": {
             "title": "检查更新",
             "latest": "## 已经是最新版本",

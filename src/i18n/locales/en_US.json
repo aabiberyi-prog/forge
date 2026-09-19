@@ -302,6 +302,18 @@
             "tool_magnify": "Mag",
             "tool_crop": "Crop"
         },
+        "pin": {
+            "title": "Pin",
+            "minimize": "Min",
+            "copy": "Copy",
+            "reset": "Reset",
+            "close": "Close",
+            "scale": "Scale",
+            "opacity": "Opacity",
+            "missing": "Image file is missing",
+            "copy_failed": "Copy failed",
+            "history_title": "Pin from history"
+        },
         "updater": {
             "title": "Check Update",
             "latest": "## The latest version is installed",
