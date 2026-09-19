@@ -233,6 +233,9 @@ reconsider building on `quick-task` instead. Do not let it drift.
 
 ### Phase 2 — Absorb Desktop ToDo · 1–2 weeks
 
+Implementation is in progress on `phase-2/absorb-todo` from the Phase 1 head.
+See [the Phase 2 execution record](PHASE-2-ABSORB-TODO.md).
+
 - Port `tasks` and `clips` (copy-items) commands from
   `..\quick-task\src-tauri\src\lib.rs` into `features/`
 - Rewrite `TodoInput`, `TodoList`, `TodoStats`, `TitleBar` in NextUI
