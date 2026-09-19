@@ -2,7 +2,8 @@
 
 #[cfg(windows)]
 pub fn start_recording() -> Result<(), String> {
-    Err("screen recording is Phase 5".to_string())
+    crate::features::recorder::toggle_recording();
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

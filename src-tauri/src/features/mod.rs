@@ -5,5 +5,6 @@ pub mod hotkeys;
 pub mod import_todo;
 pub mod json_store;
 pub mod panel;
+pub mod recorder;
 pub mod secrets;
 pub mod tasks;

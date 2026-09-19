@@ -24,6 +24,7 @@ use cmd::*;
 use config::*;
 use features::capture::*;
 use features::clips::*;
+use features::recorder::*;
 use features::hotkeys::*;
 use features::import_todo::*;
 use features::panel::*;
@@ -129,6 +130,7 @@ fn main() {
             start_server();
             // Register Global Shortcut
             crate::features::capture::ensure_capture_hotkey_defaults();
+            crate::features::recorder::ensure_recording_hotkey_default();
             match register_shortcut("all") {
                 Ok(()) => {}
                 Err(e) => app
@@ -219,6 +221,8 @@ fn main() {
             hide_panel_window,
             get_capture_mode,
             finish_capture,
+            recording_status,
+            toggle_screen_recording,
             secret_get,
             secret_set,
             list_hotkey_registry,
