@@ -5,7 +5,7 @@ import { CardBody } from '@nextui-org/react';
 import { Button } from '@nextui-org/react';
 import { Input } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useConfig } from '../../../../hooks/useConfig';
 import { useToastStyle } from '../../../../hooks';
@@ -53,6 +53,13 @@ export default function Hotkey() {
 
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
+    const [registry, setRegistry] = useState([]);
+
+    useEffect(() => {
+        invoke('list_hotkey_registry')
+            .then((items) => setRegistry(Array.isArray(items) ? items : []))
+            .catch(() => setRegistry([]));
+    }, []);
 
     function keyDown(e, setKey) {
         e.preventDefault();
@@ -241,6 +248,23 @@ export default function Hotkey() {
                         />
                     )}
                 </div>
+                {registry.length > 0 && (
+                    <div className='mt-4'>
+                        <h3 className='mb-2'>{t('config.hotkey.registry', { defaultValue: 'Planned bindings' })}</h3>
+                        {registry.map((item) => (
+                            <div key={item.id} className='config-item text-small'>
+                                <span>
+                                    {item.shortcut} · {item.action} ({item.source})
+                                </span>
+                                <span className='text-default-400'>
+                                    {item.implemented
+                                        ? item.error || 'ready'
+                                        : item.error || 'later'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </CardBody>
         </Card>
     );

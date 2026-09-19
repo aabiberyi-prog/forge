@@ -49,6 +49,7 @@ export default function Backup() {
     const [uploading, setUploading] = useState(false);
     const [importing, setImporting] = useState(false);
     const [hasOfficial, setHasOfficial] = useState(null);
+    const [hasDesktopTodo, setHasDesktopTodo] = useState(null);
     const toastStyle = useToastStyle();
     const { t } = useTranslation();
 
@@ -56,6 +57,9 @@ export default function Backup() {
         invoke('has_official_pot_config')
             .then((v) => setHasOfficial(!!v))
             .catch(() => setHasOfficial(false));
+        invoke('has_desktop_todo_data')
+            .then((v) => setHasDesktopTodo(!!v))
+            .catch(() => setHasDesktopTodo(false));
     }, []);
 
     const onImportOfficial = async () => {
@@ -82,6 +86,31 @@ export default function Backup() {
             }, 800);
         } catch (e) {
             toast.error(t('config.backup.import_official_failed') + ': ' + e.toString(), {
+                style: toastStyle,
+            });
+        } finally {
+            setImporting(false);
+        }
+    };
+
+    const onImportDesktopTodo = async () => {
+        try {
+            const ok = await ask(t('config.backup.import_todo_confirm'), {
+                title: t('config.backup.import_todo'),
+                type: 'warning',
+            });
+            if (!ok) return;
+            setImporting(true);
+            const result = await invoke('import_desktop_todo_data');
+            toast.success(
+                t('config.backup.import_todo_success', {
+                    tasks: result?.tasks ?? 0,
+                    clips: result?.clips ?? 0,
+                }),
+                { style: toastStyle, duration: 4000 }
+            );
+        } catch (e) {
+            toast.error(t('config.backup.import_todo_failed') + ': ' + e.toString(), {
                 style: toastStyle,
             });
         } finally {
@@ -242,6 +271,29 @@ export default function Backup() {
                             {hasOfficial === false
                                 ? t('config.backup.import_official_missing')
                                 : t('config.backup.import_official_action')}
+                        </Button>
+                    </div>
+                </CardBody>
+            </Card>
+            <Card className='mb-[10px]'>
+                <CardBody>
+                    <div className='config-item'>
+                        <div>
+                            <h3>{t('config.backup.import_todo')}</h3>
+                            <p className='text-small text-default-400 max-w-[360px]'>
+                                {t('config.backup.import_todo_desc')}
+                            </p>
+                        </div>
+                        <Button
+                            color='primary'
+                            variant='flat'
+                            isLoading={importing}
+                            isDisabled={hasDesktopTodo === false}
+                            onPress={onImportDesktopTodo}
+                        >
+                            {hasDesktopTodo === false
+                                ? t('config.backup.import_todo_missing')
+                                : t('config.backup.import_todo_action')}
                         </Button>
                     </div>
                 </CardBody>

@@ -23,7 +23,10 @@ use clipboard::*;
 use cmd::*;
 use config::*;
 use features::clips::*;
+use features::hotkeys::*;
+use features::import_todo::*;
 use features::panel::*;
+use features::secrets::*;
 use features::tasks::*;
 use hotkey::*;
 use lang_detect::*;
@@ -105,6 +108,11 @@ fn main() {
             }
             if let Err(error) = crate::features::clips::migrate_json_clips(app.handle()) {
                 log::warn!("Clip JSON migration failed: {error}");
+            }
+            match crate::features::secrets::migrate_plaintext_secrets(app.handle()) {
+                Ok(count) if count > 0 => info!("Moved {count} API keys into the OS keychain"),
+                Ok(_) => {}
+                Err(error) => log::warn!("Secret migration failed: {error}"),
             }
             // Check First Run
             if is_first_run() {
@@ -206,7 +214,12 @@ fn main() {
             copy_image_files_to_clipboard,
             get_panel_settings,
             set_panel_settings,
-            hide_panel_window
+            hide_panel_window,
+            secret_get,
+            secret_set,
+            list_hotkey_registry,
+            has_desktop_todo_data,
+            import_desktop_todo_data
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
