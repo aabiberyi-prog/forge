@@ -13,6 +13,7 @@ import Updater from './window/Updater';
 import { store } from './utils/store';
 import Config from './window/Config';
 import Panel from './window/Panel';
+import Pin from './window/Pin';
 import { useConfig } from './hooks';
 import './style.css';
 import './i18n';
@@ -25,6 +26,7 @@ const windowMap = {
     config: <Config />,
     updater: <Updater />,
     panel: <Panel />,
+    pin: <Pin />,
 };
 
 export default function App() {

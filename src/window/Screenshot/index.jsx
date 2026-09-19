@@ -1,25 +1,37 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { currentMonitor } from '@tauri-apps/api/window';
+import { LogicalSize } from '@tauri-apps/api/dpi';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit } from '@tauri-apps/api/event';
 import { warn } from '@tauri-apps/plugin-log';
 import { invoke } from '@tauri-apps/api/core';
+import Annotator from './Annotator';
+
 const appWindow = getCurrentWebviewWindow();
 
 export default function Screenshot() {
     const [imgurl, setImgurl] = useState('');
+    const [cutUrl, setCutUrl] = useState('');
+    const [mode, setMode] = useState('ocr');
+    const [stage, setStage] = useState('select');
     const [isMoved, setIsMoved] = useState(false);
     const [isDown, setIsDown] = useState(false);
     const [mouseDownX, setMouseDownX] = useState(0);
     const [mouseDownY, setMouseDownY] = useState(0);
     const [mouseMoveX, setMouseMoveX] = useState(0);
     const [mouseMoveY, setMouseMoveY] = useState(0);
-
     const imgRef = useRef();
 
     useEffect(() => {
+        invoke('get_capture_mode')
+            .then((value) => {
+                if (value === 'save' || value === 'pin' || value === 'ocr') {
+                    setMode(value);
+                }
+            })
+            .catch(() => {});
         currentMonitor().then((monitor) => {
             const position = monitor.position;
             invoke('screenshot', { x: position.x, y: position.y }).then(() => {
@@ -31,6 +43,53 @@ export default function Screenshot() {
             });
         });
     }, []);
+
+    const finishRegion = async (event) => {
+        appWindow.hide();
+        setIsDown(false);
+        setIsMoved(false);
+        const imgWidth = imgRef.current.naturalWidth;
+        const dpi = imgWidth / screen.width;
+        const left = Math.floor(Math.min(mouseDownX, event.clientX) * dpi);
+        const top = Math.floor(Math.min(mouseDownY, event.clientY) * dpi);
+        const right = Math.floor(Math.max(mouseDownX, event.clientX) * dpi);
+        const bottom = Math.floor(Math.max(mouseDownY, event.clientY) * dpi);
+        const width = right - left;
+        const height = bottom - top;
+        if (width <= 0 || height <= 0) {
+            warn('Screenshot area is too small');
+            await appWindow.close();
+            return;
+        }
+        await invoke('cut_image', { left, top, width, height });
+        if (mode === 'ocr') {
+            await emit('success');
+            await appWindow.close();
+            return;
+        }
+        const cutPath = await join(await appCacheDir(), 'pot_screenshot_cut.png');
+        setCutUrl(`${convertFileSrc(cutPath)}?t=${Date.now()}`);
+        setStage('annotate');
+        await appWindow.setFullscreen(false);
+        await appWindow.center();
+        await appWindow.setSize(new LogicalSize(960, 720));
+        await appWindow.show();
+        await appWindow.setFocus();
+    };
+
+    if (stage === 'annotate') {
+        return (
+            <Annotator
+                imageSrc={cutUrl}
+                pin={mode === 'pin'}
+                onCancel={() => appWindow.close()}
+                onConfirm={async (png) => {
+                    await invoke('finish_capture', { pngBase64: png, pin: mode === 'pin' });
+                    await appWindow.close();
+                }}
+            />
+        );
+    }
 
     return (
         <>
@@ -74,27 +133,7 @@ export default function Screenshot() {
                         setMouseMoveY(e.clientY);
                     }
                 }}
-                onMouseUp={async (e) => {
-                    appWindow.hide();
-                    setIsDown(false);
-                    setIsMoved(false);
-                    const imgWidth = imgRef.current.naturalWidth;
-                    const dpi = imgWidth / screen.width;
-                    const left = Math.floor(Math.min(mouseDownX, e.clientX) * dpi);
-                    const top = Math.floor(Math.min(mouseDownY, e.clientY) * dpi);
-                    const right = Math.floor(Math.max(mouseDownX, e.clientX) * dpi);
-                    const bottom = Math.floor(Math.max(mouseDownY, e.clientY) * dpi);
-                    const width = right - left;
-                    const height = bottom - top;
-                    if (width <= 0 || height <= 0) {
-                        warn('Screenshot area is too small');
-                        await appWindow.close();
-                    } else {
-                        await invoke('cut_image', { left, top, width, height });
-                        await emit('success');
-                        await appWindow.close();
-                    }
-                }}
+                onMouseUp={finishRegion}
             />
         </>
     );
