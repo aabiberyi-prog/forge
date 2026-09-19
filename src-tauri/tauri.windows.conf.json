@@ -12,6 +12,7 @@
                 "displayLanguageSelector": true,
                 "installerIcon": "icons/icon.ico",
                 "installMode": "perMachine",
+                "startMenuFolder": "Pot Forge",
                 "languages": ["SimpChinese", "TradChinese", "English"]
             }
         },
