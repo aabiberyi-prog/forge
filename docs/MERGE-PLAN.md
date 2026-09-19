@@ -296,6 +296,9 @@ See [the Phase 4 execution record](PHASE-4-CAPTURE.md). Phase 5 has not started.
 
 ### Phase 5 — Screen recording · 1–2 weeks
 
+Implementation is complete on `phase-5/recording`. See
+[the Phase 5 execution record](PHASE-5-RECORDING.md). Phase 6 has not started.
+
 - ffmpeg as a Tauri sidecar, **fetched on first use** (~70–90 MB otherwise)
 - Windows `gdigrab`; preserve libx264 / ultrafast / CRF 28 / 30 fps
 - macOS `avfoundation` behind the same `Recorder` trait
