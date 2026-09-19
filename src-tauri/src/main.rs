@@ -6,8 +6,10 @@ mod clipboard;
 mod cmd;
 mod config;
 mod error;
+mod features;
 mod hotkey;
 mod lang_detect;
+mod platform;
 mod screenshot;
 mod selection_helper;
 mod server;
@@ -20,6 +22,9 @@ use backup::*;
 use clipboard::*;
 use cmd::*;
 use config::*;
+use features::clips::*;
+use features::panel::*;
+use features::tasks::*;
 use hotkey::*;
 use lang_detect::*;
 use log::info;
@@ -174,7 +179,25 @@ fn main() {
             get_window_opacity,
             edge_tts_synthesize,
             has_official_pot_config,
-            import_official_pot_config
+            import_official_pot_config,
+            list_tasks,
+            list_history_tasks,
+            create_task,
+            update_task,
+            delete_task,
+            clear_completed_tasks,
+            reorder_tasks,
+            list_copy_items,
+            get_copy_item,
+            create_copy_item,
+            update_copy_item,
+            delete_copy_item,
+            reorder_copy_items,
+            get_copy_payload,
+            copy_image_files_to_clipboard,
+            get_panel_settings,
+            set_panel_settings,
+            hide_panel_window
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
