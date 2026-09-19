@@ -56,13 +56,13 @@ pub fn planned_bindings() -> Vec<HotkeyStatus> {
             error: None,
         },
         HotkeyStatus {
-            id: "screen_recording".into(),
+            id: "hotkey_screen_recording".into(),
             action: "Screen recording".into(),
-            shortcut: "Alt+4".into(),
+            shortcut: configured("hotkey_screen_recording", "Alt+4"),
             source: "ShareX".into(),
-            implemented: false,
+            implemented: true,
             registered: false,
-            error: Some("Phase 5".into()),
+            error: None,
         },
         HotkeyStatus {
             id: "hotkey_ocr_recognize".into(),
@@ -178,9 +178,7 @@ mod tests {
     #[test]
     fn sharex_defaults_are_not_registered_yet() {
         let bindings = planned_bindings();
-        for item in bindings.iter().filter(|item| {
-            item.shortcut == "Alt+2" || item.shortcut == "Alt+4"
-        }) {
+        for item in bindings.iter().filter(|item| item.shortcut == "Alt+2") {
             assert!(!item.implemented);
             assert!(!item.registered);
         }

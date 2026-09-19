@@ -52,6 +52,7 @@ export default function Hotkey() {
     const [ocrTranslate, setOcrTranslate] = useConfig('hotkey_ocr_translate', '');
     const [captureRegion, setCaptureRegion] = useConfig('hotkey_capture_region', 'Alt+1');
     const [pinToScreen, setPinToScreen] = useConfig('hotkey_pin_to_screen', 'Alt+3');
+    const [screenRecording, setScreenRecording] = useConfig('hotkey_screen_recording', 'Alt+4');
 
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
@@ -304,6 +305,37 @@ export default function Hotkey() {
                                     className={`${pinToScreen === '' && 'hidden'}`}
                                     onPress={() => {
                                         registerHandler('hotkey_pin_to_screen', pinToScreen);
+                                    }}
+                                >
+                                    {t('common.ok')}
+                                </Button>
+                            }
+                        />
+                    )}
+                </div>
+                <div className='config-item'>
+                    <h3 className='my-auto'>{t('config.hotkey.screen_recording')}</h3>
+                    {screenRecording !== null && (
+                        <Input
+                            type='hotkey'
+                            variant='bordered'
+                            value={screenRecording}
+                            label={t('config.hotkey.set_hotkey')}
+                            className='max-w-[50%]'
+                            onKeyDown={(e) => {
+                                keyDown(e, setScreenRecording);
+                            }}
+                            onFocus={() => {
+                                unregister(screenRecording);
+                                setScreenRecording('');
+                            }}
+                            endContent={
+                                <Button
+                                    size='sm'
+                                    variant='flat'
+                                    className={`${screenRecording === '' && 'hidden'}`}
+                                    onPress={() => {
+                                        registerHandler('hotkey_screen_recording', screenRecording);
                                     }}
                                 >
                                     {t('common.ok')}

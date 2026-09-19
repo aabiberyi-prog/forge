@@ -1,4 +1,5 @@
 use crate::config::{get, set};
+use crate::features::recorder::toggle_recording;
 use crate::window::{
     capture_region, input_translate, ocr_recognize, ocr_translate, pin_capture, selection_translate,
 };
@@ -49,19 +50,19 @@ where
     Ok(())
 }
 
-const CONFIGURED_HOTKEY_IDS: [&str; 6] = [
+const CONFIGURED_HOTKEY_IDS: [&str; 7] = [
     "hotkey_selection_translate",
     "hotkey_input_translate",
     "hotkey_ocr_recognize",
     "hotkey_ocr_translate",
     "hotkey_capture_region",
     "hotkey_pin_to_screen",
+    "hotkey_screen_recording",
 ];
 
 pub(crate) fn reserved_shortcut(shortcut: &str) -> Option<&'static str> {
     match shortcut.to_ascii_lowercase().as_str() {
         "alt+2" => Some("Scrolling capture (Phase 6)"),
-        "alt+4" => Some("Screen recording (Phase 5)"),
         _ => None,
     }
 }
@@ -103,6 +104,9 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
             register(app_handle, "hotkey_capture_region", capture_region, "")?
         }
         "hotkey_pin_to_screen" => register(app_handle, "hotkey_pin_to_screen", pin_capture, "")?,
+        "hotkey_screen_recording" => {
+            register(app_handle, "hotkey_screen_recording", toggle_recording, "")?
+        }
         "all" => {
             register(
                 app_handle,
@@ -115,6 +119,7 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
             register(app_handle, "hotkey_ocr_translate", ocr_translate, "")?;
             register(app_handle, "hotkey_capture_region", capture_region, "")?;
             register(app_handle, "hotkey_pin_to_screen", pin_capture, "")?;
+            register(app_handle, "hotkey_screen_recording", toggle_recording, "")?;
         }
         _ => {}
     }
@@ -149,6 +154,14 @@ pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), S
         "hotkey_pin_to_screen" => {
             register(app_handle, "hotkey_pin_to_screen", pin_capture, shortcut)?
         }
+        "hotkey_screen_recording" => {
+            register(
+                app_handle,
+                "hotkey_screen_recording",
+                toggle_recording,
+                shortcut,
+            )?
+        }
         _ => {}
     }
     Ok(())
@@ -164,7 +177,7 @@ mod tests {
         assert!(reserved_shortcut("Alt+3").is_none());
         assert!(reserved_shortcut("Alt+5").is_none());
         assert!(reserved_shortcut("alt+2").unwrap().contains("Phase 6"));
-        assert!(reserved_shortcut("Alt+4").unwrap().contains("Phase 5"));
+        assert!(reserved_shortcut("Alt+4").is_none());
         assert!(reserved_shortcut("Alt+Q").is_none());
         assert!(reserved_shortcut("Alt+W").is_none());
     }
