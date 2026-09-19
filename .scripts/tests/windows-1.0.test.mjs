@@ -5,6 +5,7 @@ import test from 'node:test';
 const windows = JSON.parse(fs.readFileSync('src-tauri/tauri.windows.conf.json', 'utf8'));
 const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
 const workflow = fs.readFileSync('.github/workflows/windows-release.yml', 'utf8');
+const ci = fs.readFileSync('.github/workflows/ci.yml', 'utf8');
 const packageWorkflow = fs.readFileSync('.github/workflows/package.yml', 'utf8');
 const updater = fs.readFileSync('updater/updater.mjs', 'utf8');
 const fromArtifacts = fs.readFileSync('updater/from-artifacts.mjs', 'utf8');
@@ -31,6 +32,14 @@ test('Windows 1.0 workflow builds NSIS with Tauri 2 signing env', () => {
     assert.doesNotMatch(workflow, /pot-app\/pot-docs/);
 });
 
+test('CI regression workflow tests without publishing', () => {
+    assert.match(ci, /pnpm test/);
+    assert.match(ci, /cargo test/);
+    assert.doesNotMatch(ci, /action-gh-release/);
+    assert.doesNotMatch(ci, /Pylogmon\.pot/);
+    assert.match(workflow, /needs: verify/);
+});
+
 test('legacy package workflow cannot publish to pot-app', () => {
     assert.match(packageWorkflow, /workflow_dispatch/);
     assert.doesNotMatch(packageWorkflow, /identifier: Pylogmon\.pot/);
@@ -52,4 +61,6 @@ test('migration guide names the three source apps and five ShareX hotkeys', () =
     assert.match(migration, /com\.aabiber\.pot-forge/);
     assert.match(migration, /Alt\+1/);
     assert.match(migration, /Alt\+4/);
+    assert.match(migration, /ID merge/);
+    assert.match(migration, /FORGE_BACKUP_PROFILE_DIR/);
 });

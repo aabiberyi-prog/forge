@@ -10,7 +10,9 @@
         "tauri": "node .scripts/run-tool.cjs tauri",
         "updater": "node updater/updater.mjs",
         "updater:fixRuntime": "node updater/updater-for-fix-runtime.mjs",
-        "test:tauri2": "node --experimental-vm-modules --test .scripts/tests/tauri2-compat.test.mjs"
+        "test": "node .scripts/run-tests.mjs",
+        "test:tauri2": "node --experimental-vm-modules --test .scripts/tests/tauri2-compat.test.mjs",
+        "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
     },
     "dependencies": {
         "@nextui-org/react": "^2.4.8",

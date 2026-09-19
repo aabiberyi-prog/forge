@@ -26,9 +26,31 @@ is `history.db` in that folder. Tasks and clips are tables in the same file.
 
 ## From Desktop ToDo / QuickTask (`com.local.desktop-todo`)
 
-Use **Config → Backup → Import from Desktop ToDo**. Tasks and clips (plus
-`copy-assets`) are copied into Forge SQLite. Then you can stop using
-QuickTask.
+Use **Config → Backup → Import from Desktop ToDo**. The flow is preview, then
+ID merge: add missing rows, skip identical IDs, keep destination rows on
+conflict, copy clip assets with a content check, and record an import ledger.
+It does **not** delete the whole task/clip set. Destination-only rows stay.
+
+Recount immediately before a real-profile import (expected baseline on this
+PC: 86 tasks / 69 history / 9 clips / 8 images). Import twice must add zero
+duplicates. Interrupted import restores the snapshot.
+
+Then you can stop using QuickTask. Do not run the real import until that
+recount is accepted.
+
+## Isolated profile vs live install
+
+- Live app: `D:\Pot Forge`, profile `%APPDATA%\com.aabiber.pot-forge`.
+- Isolated checks: identifier `com.aabiber.forge-migration-check` and/or
+  `FORGE_BACKUP_PROFILE_DIR`. Never point backup restore at official Pot
+  (`com.pot-app.desktop`).
+- Rollback: keep the previous NSIS; restore from a Forge-profile zip that
+  includes `config.json`, `history.db`, `panel.json`, `plugins`, and
+  `copy-assets`.
+
+See [CANDIDATE.md](CANDIDATE.md) and [ACCEPTANCE.json](ACCEPTANCE.json) for
+pass/fail/skip accounting. Desktop cases stay blocked until a signed NSIS of
+the candidate SHA is installed to an isolated directory.
 
 ## From ShareX
 
