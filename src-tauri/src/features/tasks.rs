@@ -122,12 +122,6 @@ fn save_tasks(app: &AppHandle, tasks: &[Task]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn import_task_list(app: &AppHandle, tasks: Vec<Task>) -> Result<(), String> {
-    save_tasks(app, &tasks)?;
-    let conn = db::open(app)?;
-    db::meta_set(&conn, "tasks_migrated", "1")
-}
-
 fn next_id() -> String {
     format!("task-{}", timestamp())
 }

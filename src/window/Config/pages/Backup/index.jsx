@@ -95,17 +95,28 @@ export default function Backup() {
 
     const onImportDesktopTodo = async () => {
         try {
-            const ok = await ask(t('config.backup.import_todo_confirm'), {
-                title: t('config.backup.import_todo'),
-                type: 'warning',
-            });
+            const preview = await invoke('preview_desktop_todo_import');
+            const ok = await ask(
+                t('config.backup.import_todo_confirm', {
+                    added: preview?.tasksAdded ?? 0,
+                    skipped: preview?.tasksSkipped ?? 0,
+                    conflicts: preview?.taskConflicts?.length ?? 0,
+                    clips: preview?.clipsAdded ?? 0,
+                }),
+                {
+                    title: t('config.backup.import_todo'),
+                    type: 'warning',
+                }
+            );
             if (!ok) return;
             setImporting(true);
-            const result = await invoke('import_desktop_todo_data');
+            const result = await invoke('import_desktop_todo_data', { dryRun: false });
             toast.success(
                 t('config.backup.import_todo_success', {
-                    tasks: result?.tasks ?? 0,
-                    clips: result?.clips ?? 0,
+                    tasks: result?.tasksAdded ?? 0,
+                    clips: result?.clipsAdded ?? 0,
+                    skipped: result?.tasksSkipped ?? 0,
+                    conflicts: result?.taskConflicts?.length ?? 0,
                 }),
                 { style: toastStyle, duration: 4000 }
             );

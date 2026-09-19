@@ -238,12 +238,6 @@ fn save_copy_items(app: &AppHandle, items: &[CopyItem]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn import_clip_list(app: &AppHandle, items: Vec<CopyItem>) -> Result<(), String> {
-    save_copy_items(app, &items)?;
-    let conn = db::open(app)?;
-    db::meta_set(&conn, "clips_migrated", "1")
-}
-
 fn default_copy_items() -> Vec<CopyItem> {
     let now = "0".to_string();
     vec![CopyItem {

@@ -96,17 +96,31 @@ mod tests {
 
     #[test]
     fn keychain_roundtrip_uses_isolated_name() {
-        let name = format!("forge-phase3-test-{}", std::process::id());
-        match persist_secret(&name, "probe-value") {
-            Ok(()) => {
-                assert_eq!(secret_get(name.clone()).unwrap(), "probe-value");
-                persist_secret(&name, "").unwrap();
-            }
-            Err(error) => {
-                assert!(
+        let name = format!(
+            "forge-p1-{}-{}",
+            std::process::id(),
+            crate::features::json_store::unique_stamp()
+        );
+        let persist = persist_secret(&name, "probe-value");
+        let read_back = persist
+            .as_ref()
+            .ok()
+            .map(|_| secret_get(name.clone()).unwrap_or_default());
+        let _ = persist_secret(&name, "");
+        #[cfg(windows)]
+        {
+            persist.expect("windows-native keychain must persist");
+            assert_eq!(read_back.unwrap(), "probe-value");
+            assert_eq!(secret_get(name).unwrap(), "");
+        }
+        #[cfg(not(windows))]
+        {
+            match persist {
+                Ok(()) => assert_eq!(read_back.unwrap(), "probe-value"),
+                Err(error) => assert!(
                     error.contains("did not persist"),
                     "unexpected keychain error: {error}"
-                );
+                ),
             }
         }
     }

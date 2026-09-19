@@ -71,6 +71,15 @@ pub fn init_schema_on(conn: &Connection) -> Result<(), String> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS import_ledger(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            dry_run INTEGER NOT NULL,
+            report_json TEXT NOT NULL,
+            snapshot_path TEXT
+        );
         "#,
     )
     .map_err(|error| error.to_string())?;
@@ -130,5 +139,14 @@ mod tests {
             .unwrap();
         assert_eq!(tasks, 1);
         assert_eq!(clips, 1);
+        conn.execute(
+            "INSERT INTO import_ledger(started_at, finished_at, source, dry_run, report_json, snapshot_path) VALUES('1','1','t',0,'{}','')",
+            [],
+        )
+        .unwrap();
+        let ledger: i64 = conn
+            .query_row("SELECT COUNT(*) FROM import_ledger", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(ledger, 1);
     }
 }

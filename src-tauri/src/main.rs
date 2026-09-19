@@ -237,6 +237,7 @@ fn main() {
             secret_set,
             list_hotkey_registry,
             has_desktop_todo_data,
+            preview_desktop_todo_import,
             import_desktop_todo_data
         ])
         .build(tauri::generate_context!())
