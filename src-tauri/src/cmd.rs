@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[tauri::command]
 pub fn get_text(state: tauri::State<StringWrapper>) -> String {
@@ -19,8 +19,8 @@ pub fn get_text(state: tauri::State<StringWrapper>) -> String {
 #[tauri::command]
 pub fn reload_store() {
     let state = APP.get().unwrap().state::<StoreWrapper>();
-    let mut store = state.0.lock().unwrap();
-    store.load().unwrap();
+    let store = state.0.lock().unwrap();
+    store.reload().unwrap();
 }
 
 #[tauri::command]
@@ -29,7 +29,7 @@ pub fn cut_image(left: u32, top: u32, width: u32, height: u32, app_handle: tauri
     use image::GenericImage;
     info!("Cut image: {}x{}+{}+{}", width, height, left, top);
     let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-    app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+    app_cache_dir_path.push(&app_handle.config().identifier);
     app_cache_dir_path.push("pot_screenshot.png");
     if !app_cache_dir_path.exists() {
         return;
@@ -59,7 +59,7 @@ pub fn get_base64(app_handle: tauri::AppHandle) -> String {
     use std::fs::File;
     use std::io::Read;
     let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-    app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+    app_cache_dir_path.push(&app_handle.config().identifier);
     app_cache_dir_path.push("pot_screenshot_cut.png");
     if !app_cache_dir_path.exists() {
         return "".to_string();
@@ -85,7 +85,7 @@ pub fn copy_img(app_handle: tauri::AppHandle, width: usize, height: usize) -> Re
     use std::borrow::Cow;
 
     let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-    app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+    app_cache_dir_path.push(&app_handle.config().identifier);
     app_cache_dir_path.push("pot_screenshot_cut.png");
     let data = ImageReader::open(app_cache_dir_path)?.decode()?;
 
@@ -165,8 +165,7 @@ pub fn install_plugin(path_list: Vec<String>) -> Result<i32, Error> {
             return Err(Error::Error("Invalid Plugin: miss main.js".into()));
         }
         let config_path = dirs::config_dir().unwrap();
-        let config_path =
-            config_path.join(APP.get().unwrap().config().tauri.bundle.identifier.clone());
+        let config_path = config_path.join(APP.get().unwrap().config().identifier.clone());
         let config_path = config_path.join("plugins");
         let config_path = config_path.join(plugin_type);
         let plugin_path = config_path.join(file_name);
@@ -190,7 +189,7 @@ pub fn run_binary(
     use std::process::Command;
 
     let config_path = dirs::config_dir().unwrap();
-    let config_path = config_path.join(APP.get().unwrap().config().tauri.bundle.identifier.clone());
+    let config_path = config_path.join(APP.get().unwrap().config().identifier.clone());
     let config_path = config_path.join("plugins");
     let config_path = config_path.join(plugin_type);
     let plugin_path = config_path.join(plugin_name);
@@ -219,7 +218,7 @@ pub fn font_list() -> Result<Vec<String>, Error> {
 }
 
 #[tauri::command]
-pub fn open_devtools(window: tauri::Window) {
+pub fn open_devtools(window: tauri::WebviewWindow) {
     if !window.is_devtools_open() {
         window.open_devtools();
     } else {
@@ -250,14 +249,14 @@ pub fn apply_opacity_to_app(app_handle: &tauri::AppHandle, opacity: f64) -> Resu
     let opacity = opacity.clamp(0.15, 1.0);
     let labels = ["translate", "config", "recognize", "updater"];
     for label in labels {
-        if let Some(window) = app_handle.get_window(label) {
+        if let Some(window) = app_handle.get_webview_window(label) {
             apply_opacity_to_window(&window, opacity)?;
         }
     }
     Ok(())
 }
 
-pub fn apply_opacity_to_window(window: &tauri::Window, opacity: f64) -> Result<(), String> {
+pub fn apply_opacity_to_window(window: &tauri::WebviewWindow, opacity: f64) -> Result<(), String> {
     let opacity = opacity.clamp(0.15, 1.0);
     // Keep OS-level window fully opaque so text is never faded by LWA_ALPHA.
     // Front-end applies opacity only to the chrome/background via CSS.
@@ -347,16 +346,14 @@ fn find_edge_tts_exe() -> Option<PathBuf> {
 /// Probe whether official Pot config exists (for import wizard).
 #[tauri::command]
 pub fn has_official_pot_config() -> bool {
-    official_pot_config_path().map(|p| p.exists()).unwrap_or(false)
+    official_pot_config_path()
+        .map(|p| p.exists())
+        .unwrap_or(false)
 }
 
 fn official_pot_config_path() -> Option<PathBuf> {
     let config_dir = dirs::config_dir()?;
-    Some(
-        config_dir
-            .join("com.pot-app.desktop")
-            .join("config.json"),
-    )
+    Some(config_dir.join("com.pot-app.desktop").join("config.json"))
 }
 
 /// Import settings from official Pot (`com.pot-app.desktop`) into this app.
@@ -367,17 +364,14 @@ fn official_pot_config_path() -> Option<PathBuf> {
 pub fn import_official_pot_config(mode: String) -> Result<serde_json::Value, String> {
     let path = official_pot_config_path().ok_or("cannot resolve config dir")?;
     if !path.exists() {
-        return Err(format!(
-            "official Pot config not found: {}",
-            path.display()
-        ));
+        return Err(format!("official Pot config not found: {}", path.display()));
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("read failed: {e}"))?;
-    let official: serde_json::Map<String, Value> = serde_json::from_str(&raw)
-        .map_err(|e| format!("invalid official config json: {e}"))?;
+    let official: serde_json::Map<String, Value> =
+        serde_json::from_str(&raw).map_err(|e| format!("invalid official config json: {e}"))?;
 
     let state = APP.get().unwrap().state::<StoreWrapper>();
-    let mut store = state.0.lock().unwrap();
+    let store = state.0.lock().unwrap();
 
     // Keys we never import (identity / package specific)
     let skip = ["/* unused */"];
@@ -393,9 +387,7 @@ pub fn import_official_pot_config(mode: String) -> Result<serde_json::Value, Str
                 continue;
             }
         }
-        store
-            .insert(k.clone(), v.clone())
-            .map_err(|e| e.to_string())?;
+        store.set(k.clone(), v.clone());
         imported += 1;
         keys.push(k.clone());
     }
@@ -410,19 +402,16 @@ pub fn import_official_pot_config(mode: String) -> Result<serde_json::Value, Str
         });
         if !has_edge {
             new_list.insert(0, Value::String("edge_tts".into()));
-            let _ = store.insert("tts_service_list".into(), Value::Array(new_list));
+            let _ = store.set("tts_service_list", Value::Array(new_list));
         }
     } else {
-        let _ = store.insert(
-            "tts_service_list".into(),
-            json!(["edge_tts"]),
-        );
+        let _ = store.set("tts_service_list", json!(["edge_tts"]));
     }
 
     // Ensure edge_tts instance defaults exist
     if store.get("edge_tts").is_none() {
-        let _ = store.insert(
-            "edge_tts".into(),
+        let _ = store.set(
+            "edge_tts",
             json!({
                 "instanceName": "Edge TTS（少御向）",
                 "voice_zh": "zh-CN-XiaoxiaoNeural",
@@ -434,7 +423,7 @@ pub fn import_official_pot_config(mode: String) -> Result<serde_json::Value, Str
     }
 
     if store.get("window_opacity").is_none() {
-        let _ = store.insert("window_opacity".into(), json!(0.92));
+        let _ = store.set("window_opacity", json!(0.92));
     }
 
     store.save().map_err(|e| e.to_string())?;

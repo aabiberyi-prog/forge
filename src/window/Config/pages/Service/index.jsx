@@ -1,9 +1,9 @@
-import { readDir, BaseDirectory, readTextFile, exists } from '@tauri-apps/api/fs';
+import { readDir, BaseDirectory, readTextFile, exists } from '@tauri-apps/plugin-fs';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { Tabs, Tab } from '@nextui-org/react';
 import { appConfigDir, join } from '@tauri-apps/api/path';
-import { convertFileSrc } from '@tauri-apps/api/tauri';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import React, { useEffect, useState } from 'react';
 import Translate from './Translate';
 import Recognize from './Recognize';
@@ -22,11 +22,11 @@ export default function Service() {
         let temp = {};
         for (const serviceType of serviceTypeList) {
             temp[serviceType] = {};
-            if (await exists(`plugins/${serviceType}`, { dir: BaseDirectory.AppConfig })) {
-                const plugins = await readDir(`plugins/${serviceType}`, { dir: BaseDirectory.AppConfig });
+            if (await exists(`plugins/${serviceType}`, { baseDir: BaseDirectory.AppConfig })) {
+                const plugins = await readDir(`plugins/${serviceType}`, { baseDir: BaseDirectory.AppConfig });
                 for (const plugin of plugins) {
                     const infoStr = await readTextFile(`plugins/${serviceType}/${plugin.name}/info.json`, {
-                        dir: BaseDirectory.AppConfig,
+                        baseDir: BaseDirectory.AppConfig,
                     });
                     let pluginInfo = JSON.parse(infoStr);
                     if ('icon' in pluginInfo) {

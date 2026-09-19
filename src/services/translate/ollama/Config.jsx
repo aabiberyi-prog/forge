@@ -1,9 +1,10 @@
+import { nativeFetch } from '../../../utils/http.js';
 import { Input, Button, Switch, Textarea, Card, CardBody, Link, Tooltip, Progress } from '@nextui-org/react';
 import { INSTANCE_NAME_CONFIG_KEY } from '../../../utils/service_instance';
 import { MdDeleteOutline } from 'react-icons/md';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
-import { open } from '@tauri-apps/api/shell';
+import { open } from '@tauri-apps/plugin-shell';
 import React, { useEffect, useState } from 'react';
 import { Ollama } from 'ollama/browser';
 
@@ -43,7 +44,7 @@ export function Config(props) {
 
     async function getModles() {
         try {
-            const ollama = new Ollama({ host: serviceConfig.requestPath });
+            const ollama = new Ollama({ host: serviceConfig.requestPath, fetch: nativeFetch });
             const list = await ollama.list();
             setInstalledModels(list);
         } catch {
@@ -53,7 +54,7 @@ export function Config(props) {
 
     async function pullModel() {
         setIsPulling(true);
-        const ollama = new Ollama({ host: serviceConfig.requestPath });
+        const ollama = new Ollama({ host: serviceConfig.requestPath, fetch: nativeFetch });
         const stream = await ollama.pull({ model: serviceConfig.model, stream: true });
         for await (const part of stream) {
             if (part.digest) {

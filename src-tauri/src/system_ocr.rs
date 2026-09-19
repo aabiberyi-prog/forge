@@ -1,4 +1,6 @@
 use dirs::cache_dir;
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 
 #[tauri::command(async)]
 #[cfg(target_os = "windows")]
@@ -10,7 +12,7 @@ pub fn system_ocr(app_handle: tauri::AppHandle, lang: &str) -> Result<String, St
     use windows::Storage::{FileAccessMode, StorageFile};
 
     let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-    app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+    app_cache_dir_path.push(&app_handle.config().identifier);
     app_cache_dir_path.push("pot_screenshot_cut.png");
 
     let path = app_cache_dir_path.to_string_lossy().replace("\\\\?\\", "");
@@ -64,16 +66,16 @@ pub fn system_ocr(app_handle: tauri::AppHandle, lang: &str) -> Result<String, St
 #[cfg(target_os = "macos")]
 pub fn system_ocr(app_handle: tauri::AppHandle, lang: &str) -> Result<String, String> {
     let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-    app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+    app_cache_dir_path.push(&app_handle.config().identifier);
     app_cache_dir_path.push("pot_screenshot_cut.png");
 
     let arch = std::env::consts::ARCH;
-    let bin_path = match app_handle
-        .path_resolver()
-        .resolve_resource(format!("resources/ocr-{arch}-apple-darwin"))
-    {
-        Some(v) => v,
-        None => return Err("Failed to resolve ocr binary".to_string()),
+    let bin_path = match app_handle.path().resolve(
+        format!("resources/ocr-{arch}-apple-darwin"),
+        tauri::path::BaseDirectory::Resource,
+    ) {
+        Ok(v) => v,
+        Err(_) => return Err("Failed to resolve ocr binary".to_string()),
     };
 
     match std::process::Command::new("chmod")
@@ -107,7 +109,7 @@ pub fn system_ocr(app_handle: tauri::AppHandle, lang: &str) -> Result<String, St
 #[cfg(target_os = "linux")]
 pub fn system_ocr(app_handle: tauri::AppHandle, lang: &str) -> Result<String, String> {
     let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-    app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+    app_cache_dir_path.push(&app_handle.config().identifier);
     app_cache_dir_path.push("pot_screenshot_cut.png");
     let mut args = ["", ""];
     if lang != "auto" {

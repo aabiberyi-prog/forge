@@ -4,18 +4,35 @@
     "version": "3.0.8",
     "type": "module",
     "scripts": {
-        "dev": "vite",
-        "build": "vite build",
-        "preview": "vite preview",
-        "tauri": "tauri",
+        "dev": "node .scripts/run-tool.cjs vite",
+        "build": "node .scripts/run-tool.cjs vite build",
+        "preview": "node .scripts/run-tool.cjs vite preview",
+        "tauri": "node .scripts/run-tool.cjs tauri",
         "updater": "node updater/updater.mjs",
-        "updater:fixRuntime": "node updater/updater-for-fix-runtime.mjs"
+        "updater:fixRuntime": "node updater/updater-for-fix-runtime.mjs",
+        "test": "node .scripts/run-tests.mjs",
+        "test:tauri2": "node --experimental-vm-modules --test .scripts/tests/tauri2-compat.test.mjs",
+        "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
     },
     "dependencies": {
         "@nextui-org/react": "^2.4.8",
         "@nextui-org/theme": "^2.2.11",
         "@react-spring/web": "^9.7.5",
-        "@tauri-apps/api": "^1.6.0",
+        "@tauri-apps/api": "^2",
+        "@tauri-apps/plugin-autostart": "^2",
+        "@tauri-apps/plugin-clipboard-manager": "^2",
+        "@tauri-apps/plugin-dialog": "^2",
+        "@tauri-apps/plugin-fs": "^2",
+        "@tauri-apps/plugin-global-shortcut": "^2",
+        "@tauri-apps/plugin-http": "^2",
+        "@tauri-apps/plugin-log": "^2",
+        "@tauri-apps/plugin-notification": "^2",
+        "@tauri-apps/plugin-os": "^2",
+        "@tauri-apps/plugin-process": "^2",
+        "@tauri-apps/plugin-shell": "^2",
+        "@tauri-apps/plugin-sql": "^2",
+        "@tauri-apps/plugin-store": "^2",
+        "@tauri-apps/plugin-updater": "^2",
         "crypto-js": "^4.2.0",
         "flag-icons": "^7.2.3",
         "framer-motion": "^11.11.10",
@@ -37,16 +54,11 @@
         "react-router-dom": "^6.27.0",
         "react-spinners": "^0.14.1",
         "react-use-measure": "^2.1.1",
-        "tauri-plugin-autostart-api": "github:tauri-apps/tauri-plugin-autostart#v1",
-        "tauri-plugin-fs-watch-api": "github:tauri-apps/tauri-plugin-fs-watch#v1",
-        "tauri-plugin-log-api": "github:tauri-apps/tauri-plugin-log#v1",
-        "tauri-plugin-sql-api": "github:tauri-apps/tauri-plugin-sql#v1",
-        "tauri-plugin-store-api": "github:tauri-apps/tauri-plugin-store#v1",
         "tesseract.js": "^5.1.1",
         "uuid": "^11.0.2"
     },
     "devDependencies": {
-        "@tauri-apps/cli": "^1.6.3",
+        "@tauri-apps/cli": "^2",
         "@vitejs/plugin-react": "^4.3.3",
         "autoprefixer": "^10.4.20",
         "node-fetch": "^3.3.2",
@@ -55,5 +67,6 @@
         "tailwindcss": "^3.4.14",
         "typescript": "^5.6.3",
         "vite": "^5.4.10"
-    }
+    },
+    "packageManager": "pnpm@9.15.9"
 }

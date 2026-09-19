@@ -1,32 +1,32 @@
+#[cfg(target_os = "macos")]
 use std::fs;
 
 use crate::config::get;
 use crate::config::set;
 use crate::StringWrapper;
 use crate::APP;
+#[cfg(target_os = "macos")]
 use dirs::cache_dir;
 use log::{info, warn};
-use tauri::Manager;
 use tauri::Monitor;
-use tauri::Window;
-use tauri::WindowBuilder;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use window_shadows::set_shadow;
+use tauri::WebviewWindow;
+use tauri::WebviewWindowBuilder;
+use tauri::{Emitter, Listener, Manager};
 
 // Get daemon window instance
-fn get_daemon_window() -> Window {
+fn get_daemon_window() -> WebviewWindow {
     let app_handle = APP.get().unwrap();
-    match app_handle.get_window("daemon") {
+    match app_handle.get_webview_window("daemon") {
         Some(v) => v,
         None => {
             warn!("Daemon window not found, create new daemon window!");
-            WindowBuilder::new(
+            WebviewWindowBuilder::new(
                 app_handle,
                 "daemon",
-                tauri::WindowUrl::App("daemon.html".into()),
+                tauri::WebviewUrl::App("daemon.html".into()),
             )
             .title("Daemon")
-            .additional_browser_args("--disable-web-security")
+            .use_https_scheme(true)
             .visible(false)
             .build()
             .unwrap()
@@ -58,7 +58,7 @@ fn get_current_monitor(x: i32, y: i32) -> Monitor {
 }
 
 // Creating a window on the mouse monitor
-fn build_window(label: &str, title: &str) -> (Window, bool) {
+fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
     use mouse_position::mouse_position::{Mouse, Position};
 
     let mouse_position = match Mouse::get_mouse_position() {
@@ -72,38 +72,43 @@ fn build_window(label: &str, title: &str) -> (Window, bool) {
     let position = current_monitor.position();
 
     let app_handle = APP.get().unwrap();
-    match app_handle.get_window(label) {
+    match app_handle.get_webview_window(label) {
         Some(v) => {
-            info!("Window existence: {}", label);
+            info!("WebviewWindow existence: {}", label);
             // Ensure existing windows reappear above Terminal/other apps briefly
             let _ = v.unminimize();
             let _ = v.show();
-            let keep_top = match get("translate_always_on_top") {
-                Some(val) => val.as_bool().unwrap_or(false),
-                None => false,
-            } || match get("translate_session_pinned") {
-                Some(val) => val.as_bool().unwrap_or(false),
-                None => false,
-            };
+            let keep_top = label != "panel"
+                && !label.starts_with("pin")
+                && (match get("translate_always_on_top") {
+                    Some(val) => val.as_bool().unwrap_or(false),
+                    None => false,
+                } || match get("translate_session_pinned") {
+                    Some(val) => val.as_bool().unwrap_or(false),
+                    None => false,
+                });
             let _ = v.set_always_on_top(true);
             let _ = v.set_focus();
             // Restore unpinned unless user/config wants always-on-top
             if keep_top {
                 let _ = v.set_always_on_top(true);
-            } else {
+            } else if label != "panel" && !label.starts_with("pin") {
                 let _ = v.set_always_on_top(false);
             }
             (v, true)
         }
         None => {
-            info!("Window not existence, Creating new window: {}", label);
-            let mut builder = tauri::WindowBuilder::new(
+            info!(
+                "WebviewWindow not existence, Creating new window: {}",
+                label
+            );
+            let mut builder = tauri::WebviewWindowBuilder::new(
                 app_handle,
                 label,
-                tauri::WindowUrl::App("index.html".into()),
+                tauri::WebviewUrl::App("index.html".into()),
             )
             .position(position.x.into(), position.y.into())
-            .additional_browser_args("--disable-web-security")
+            .use_https_scheme(true)
             .focused(true)
             .title(title)
             .visible(false);
@@ -122,10 +127,10 @@ fn build_window(label: &str, title: &str) -> (Window, bool) {
 
             if label != "screenshot" {
                 #[cfg(not(target_os = "linux"))]
-                set_shadow(&window, true).unwrap_or_default();
+                window.set_shadow(true).unwrap_or_default();
             }
             // Pot Forge: apply saved window opacity to new windows
-            if label != "screenshot" && label != "daemon" {
+            if label != "screenshot" && label != "daemon" && label != "panel" {
                 let opacity = match get("window_opacity") {
                     Some(v) => v.as_f64().unwrap_or(0.92),
                     None => 0.92,
@@ -138,6 +143,16 @@ fn build_window(label: &str, title: &str) -> (Window, bool) {
     }
 }
 
+pub fn panel_window() {
+    let (window, exists) = build_window("panel", "Tasks");
+    let _ = window.set_skip_taskbar(true);
+    if !exists {
+        let _ = crate::features::panel::restore_panel_window(&window);
+        crate::features::panel::attach_panel_lifecycle(&window);
+    }
+    let _ = window.show();
+}
+
 pub fn config_window() {
     let (window, _exists) = build_window("config", "Config");
     window
@@ -147,7 +162,7 @@ pub fn config_window() {
     window.center().unwrap();
 }
 
-fn translate_window() -> Window {
+fn translate_window() -> WebviewWindow {
     use mouse_position::mouse_position::{Mouse, Position};
     // Mouse physical position
     let mut mouse_position = match Mouse::get_mouse_position() {
@@ -162,7 +177,7 @@ fn translate_window() -> Window {
         return window;
     }
     window.set_skip_taskbar(true).unwrap();
-    // Get Translate Window Size
+    // Get Translate WebviewWindow Size
     // Compact defaults: smaller footprint (was 350x420)
     let width = match get("translate_window_width") {
         Some(v) => v.as_i64().unwrap(),
@@ -261,7 +276,7 @@ pub fn selection_translate() {
     }
 
     let window = translate_window();
-    window.emit("new_text", text).unwrap();
+    window.emit_to(window.label(), "new_text", text).unwrap();
 }
 
 pub fn input_translate() {
@@ -282,7 +297,9 @@ pub fn input_translate() {
         window.center().unwrap();
     }
 
-    window.emit("new_text", "[INPUT_TRANSLATE]").unwrap();
+    window
+        .emit_to(window.label(), "new_text", "[INPUT_TRANSLATE]")
+        .unwrap();
 }
 
 pub fn text_translate(text: String) {
@@ -316,7 +333,7 @@ pub fn text_translate(text: String) {
         });
     }
 
-    window.emit("new_text", text).unwrap();
+    window.emit_to(window.label(), "new_text", text).unwrap();
 }
 
 pub fn image_translate() {
@@ -328,13 +345,15 @@ pub fn image_translate() {
         .unwrap()
         .replace_range(.., "[IMAGE_TRANSLATE]");
     let window = translate_window();
-    window.emit("new_text", "[IMAGE_TRANSLATE]").unwrap();
+    window
+        .emit_to(window.label(), "new_text", "[IMAGE_TRANSLATE]")
+        .unwrap();
 }
 
 pub fn recognize_window() {
     let (window, exists) = build_window("recognize", "Recognize");
     if exists {
-        window.emit("new_image", "").unwrap();
+        window.emit_to(window.label(), "new_image", "").unwrap();
         return;
     }
     let width = match get("recognize_window_width") {
@@ -360,11 +379,16 @@ pub fn recognize_window() {
         ))
         .unwrap();
     window.center().unwrap();
-    window.emit("new_image", "").unwrap();
+    window.emit_to(window.label(), "new_image", "").unwrap();
 }
 
 #[cfg(not(target_os = "macos"))]
-fn screenshot_window() -> Window {
+pub fn open_screenshot_window() {
+    let _ = screenshot_window();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn screenshot_window() -> WebviewWindow {
     let (window, _exists) = build_window("screenshot", "Screenshot");
 
     window.set_skip_taskbar(true).unwrap();
@@ -388,7 +412,7 @@ pub fn ocr_recognize() {
     {
         let app_handle = APP.get().unwrap();
         let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-        app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+        app_cache_dir_path.push(&app_handle.config().identifier);
         if !app_cache_dir_path.exists() {
             // 创建目录
             fs::create_dir_all(&app_cache_dir_path).expect("Create Cache Dir Failed");
@@ -408,6 +432,7 @@ pub fn ocr_recognize() {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        crate::features::capture::set_capture_mode("ocr");
         let window = screenshot_window();
         let window_ = window.clone();
         window.listen("success", move |event| {
@@ -421,7 +446,7 @@ pub fn ocr_translate() {
     {
         let app_handle = APP.get().unwrap();
         let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-        app_cache_dir_path.push(&app_handle.config().tauri.bundle.identifier);
+        app_cache_dir_path.push(&app_handle.config().identifier);
         if !app_cache_dir_path.exists() {
             // 创建目录
             fs::create_dir_all(&app_cache_dir_path).expect("Create Cache Dir Failed");
@@ -442,6 +467,7 @@ pub fn ocr_translate() {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        crate::features::capture::set_capture_mode("ocr");
         let window = screenshot_window();
         let window_ = window.clone();
         window.listen("success", move |event| {
@@ -449,6 +475,42 @@ pub fn ocr_translate() {
             window_.unlisten(event.id())
         });
     }
+}
+
+pub fn capture_region() {
+    crate::features::capture::set_capture_mode("save");
+    let _ = screenshot_window();
+}
+
+pub fn pin_capture() {
+    crate::features::capture::set_capture_mode("pin");
+    let _ = screenshot_window();
+}
+
+pub fn pin_window() {
+    if let Some(app) = crate::APP.get() {
+        if crate::features::pins::pin_from_capture_cache(app).is_ok() {
+            return;
+        }
+    }
+    open_named_pin("pin-1");
+}
+
+pub fn open_named_pin(label: &str) {
+    let (window, _exists) = build_window(label, "Pin");
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_resizable(true);
+    let _ = window.show();
+}
+
+pub fn open_pin_history() {
+    let (window, _exists) = build_window("pin-history", "Pin from history");
+    let _ = window.set_skip_taskbar(false);
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_size(tauri::LogicalSize::new(420.0, 520.0));
+    let _ = window.center();
+    let _ = window.show();
 }
 
 #[tauri::command(async)]

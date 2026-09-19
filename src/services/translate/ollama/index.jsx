@@ -1,3 +1,4 @@
+import { nativeFetch } from '../../../utils/http.js';
 import { Language } from './info';
 import { Ollama } from 'ollama/browser';
 
@@ -12,7 +13,7 @@ export async function translate(text, from, to, options = {}) {
     if (requestPath.endsWith('/')) {
         requestPath = requestPath.slice(0, -1);
     }
-    const ollama = new Ollama({ host: requestPath });
+    const ollama = new Ollama({ host: requestPath, fetch: nativeFetch });
 
     promptList = promptList.map((item) => {
         return {

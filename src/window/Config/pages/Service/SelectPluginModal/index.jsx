@@ -1,11 +1,11 @@
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button } from '@nextui-org/react';
-import { removeDir, BaseDirectory } from '@tauri-apps/api/fs';
-import { open as openInBrowser } from '@tauri-apps/api/shell';
+import { remove, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { open as openInBrowser } from '@tauri-apps/plugin-shell';
 import toast, { Toaster } from 'react-hot-toast';
 import { MdDeleteOutline } from 'react-icons/md';
 import { useTranslation } from 'react-i18next';
-import { open } from '@tauri-apps/api/dialog';
-import { invoke } from '@tauri-apps/api';
+import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import React, { useState } from 'react';
 
 import { createServiceInstanceKey } from '../../../../../utils/service_instance';
@@ -69,8 +69,8 @@ export default function SelectPluginModal(props) {
                                             color='danger'
                                             variant='flat'
                                             onPress={() => {
-                                                removeDir(`plugins/${pluginType}/${x}`, {
-                                                    dir: BaseDirectory.AppConfig,
+                                                remove(`plugins/${pluginType}/${x}`, {
+                                                    baseDir: BaseDirectory.AppConfig,
                                                     recursive: true,
                                                 }).then(
                                                     (v) => {

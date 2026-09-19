@@ -1,4 +1,4 @@
-import { fetch, Body } from '@tauri-apps/api/http';
+import { fetch, Body, nativeFetch, readSseData } from '../../../utils/http.js';
 import { Language } from './info';
 import { defaultRequestArguments } from './Config';
 
@@ -61,61 +61,29 @@ export async function translate(text, from, to, options) {
         body['model'] = model;
     }
     if (stream) {
-        const res = await window.fetch(apiUrl.href, {
+        const res = await nativeFetch(apiUrl.href, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify(body),
         });
         if (res.ok) {
             let target = '';
-            const reader = res.body.getReader();
-            try {
-                let temp = '';
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        setResult(target.trim());
-                        return target.trim();
-                    }
-                    const str = new TextDecoder().decode(value);
-                    let datas = str.split('data:');
-                    for (let data of datas) {
-                        if (data.trim() !== '' && data.trim() !== '[DONE]') {
-                            try {
-                                if (temp !== '') {
-                                    data = temp + data.trim();
-                                    let result = JSON.parse(data.trim());
-                                    if (result.choices[0].delta.content) {
-                                        target += result.choices[0].delta.content;
-                                        if (setResult) {
-                                            setResult(target + '_');
-                                        } else {
-                                            return '[STREAM]';
-                                        }
-                                    }
-                                    temp = '';
-                                } else {
-                                    let result = JSON.parse(data.trim());
-                                    if (result.choices[0].delta.content) {
-                                        target += result.choices[0].delta.content;
-                                        if (setResult) {
-                                            setResult(target + '_');
-                                        } else {
-                                            return '[STREAM]';
-                                        }
-                                    }
-                                }
-                            } catch {
-                                temp = data.trim();
-                            }
-                        }
-                    }
+            for await (const data of readSseData(res)) {
+                if (data.trim() === '[DONE]') break;
+                if (!data.trim()) continue;
+                const result = JSON.parse(data);
+                if (result.error) throw new Error(result.error.message ?? JSON.stringify(result.error));
+                const content = result.choices?.[0]?.delta?.content;
+                if (typeof content === 'string' && content !== '') {
+                    target += content;
+                    if (setResult) setResult(target + '_');
+                    else return '[STREAM]';
                 }
-            } finally {
-                reader.releaseLock();
             }
+            setResult?.(target.trim());
+            return target.trim();
         } else {
-            throw `Http Request Error\nHttp Status: ${res.status}\n${JSON.stringify(res.data)}`;
+            throw `Http Request Error\nHttp Status: ${res.status}\n${await res.text()}`;
         }
     } else {
         let res = await fetch(apiUrl.href, {

@@ -5,7 +5,7 @@ import { DropdownMenu } from '@nextui-org/react';
 import { DropdownItem } from '@nextui-org/react';
 import { Dropdown } from '@nextui-org/react';
 import { useTranslation } from 'react-i18next';
-import { open } from '@tauri-apps/api/shell';
+import { open } from '@tauri-apps/plugin-shell';
 import React from 'react';
 
 import { useConfig } from '../../../../../hooks';

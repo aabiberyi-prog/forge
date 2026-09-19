@@ -1,5 +1,5 @@
-import { readBinaryFile, BaseDirectory } from '@tauri-apps/api/fs';
-import { fetch, Body } from '@tauri-apps/api/http';
+import { readFile, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { fetch, Body } from '../../../utils/http.js';
 import { nanoid } from 'nanoid';
 import md5 from 'md5';
 
@@ -15,7 +15,7 @@ export async function recognize(base64, language, options = {}) {
         throw 'Please configure appid and secret';
     }
 
-    let file = await readBinaryFile('pot_screenshot_cut.png', { dir: BaseDirectory.AppCache });
+    let file = await readFile('pot_screenshot_cut.png', { baseDir: BaseDirectory.AppCache });
     const str = appid + md5(file) + salt + 'APICUIDmac' + secret;
     const sign = md5(str);
 

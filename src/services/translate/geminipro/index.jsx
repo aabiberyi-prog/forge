@@ -1,4 +1,4 @@
-import { fetch, Body } from '@tauri-apps/api/http';
+import { fetch, Body, nativeFetch } from '../../../utils/http.js';
 import { Language } from './info';
 
 export async function translate(text, from, to, options = {}) {
@@ -59,7 +59,7 @@ export async function translate(text, from, to, options = {}) {
     };
 
     if (stream) {
-        const res = await window.fetch(requestPath, {
+        const res = await nativeFetch(requestPath, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify(body),

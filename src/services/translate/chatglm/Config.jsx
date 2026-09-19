@@ -1,4 +1,5 @@
 import { INSTANCE_NAME_CONFIG_KEY } from '../../../utils/service_instance';
+import { persistApiKey, resolveApiKey } from '../../../utils/secret';
 import { Input, Button, Textarea } from '@nextui-org/react';
 import { DropdownTrigger } from '@nextui-org/react';
 import { MdDeleteOutline } from 'react-icons/md';
@@ -7,8 +8,8 @@ import { DropdownItem } from '@nextui-org/react';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { Dropdown } from '@nextui-org/react';
-import { open } from '@tauri-apps/api/shell';
-import React, { useState } from 'react';
+import { open } from '@tauri-apps/plugin-shell';
+import React, { useEffect, useState } from 'react';
 
 import { useConfig } from '../../../hooks/useConfig';
 import { useToastStyle } from '../../../hooks';
@@ -16,7 +17,23 @@ import { translate } from './index';
 import { Language } from './index';
 
 // https://docs.bigmodel.cn/cn/guide/start/model-overview#%E6%96%87%E6%9C%AC%E6%A8%A1%E5%9E%8B
-const availableModels = ['glm-4.5', 'glm-4.5-x', 'glm-4.5-air', 'glm-4.5-airx', 'glm-4-plus', 'glm-4-air-250414', 'glm-4-long', 'glm-4-airx', 'glm-4-flashx-250414', 'glm-z1-air', 'glm-z1-airx', 'glm-z1-flashx', 'glm-4.5-flash', 'glm-4-flash-250414', 'glm-z1-flash']
+const availableModels = [
+    'glm-4.5',
+    'glm-4.5-x',
+    'glm-4.5-air',
+    'glm-4.5-airx',
+    'glm-4-plus',
+    'glm-4-air-250414',
+    'glm-4-long',
+    'glm-4-airx',
+    'glm-4-flashx-250414',
+    'glm-z1-air',
+    'glm-z1-airx',
+    'glm-z1-flashx',
+    'glm-4.5-flash',
+    'glm-4-flash-250414',
+    'glm-z1-flash',
+];
 
 export function Config(props) {
     const { instanceKey, updateServiceList, onClose } = props;
@@ -42,6 +59,17 @@ export function Config(props) {
         { sync: false }
     );
     const [isLoading, setIsLoading] = useState(false);
+    const [secretLoaded, setSecretLoaded] = useState(false);
+
+    useEffect(() => {
+        if (!serviceConfig || secretLoaded) return;
+        resolveApiKey(instanceKey, serviceConfig).then((apiKey) => {
+            if (apiKey && apiKey !== serviceConfig.apiKey) {
+                setServiceConfig({ ...serviceConfig, apiKey }, false);
+            }
+            setSecretLoaded(true);
+        });
+    }, [serviceConfig, instanceKey, secretLoaded]);
 
     const toastStyle = useToastStyle();
 
@@ -52,9 +80,10 @@ export function Config(props) {
                     e.preventDefault();
                     setIsLoading(true);
                     translate('hello', Language.auto, Language.zh_cn, { config: serviceConfig }).then(
-                        () => {
+                        async () => {
                             setIsLoading(false);
-                            setServiceConfig(serviceConfig, true);
+                            await persistApiKey(instanceKey, serviceConfig.apiKey);
+                            setServiceConfig({ ...serviceConfig, apiKey: '' }, true);
                             updateServiceList(instanceKey);
                             onClose();
                         },
@@ -111,10 +140,8 @@ export function Config(props) {
                                 });
                             }}
                         >
-                            {availableModels.map(it => (
-                                <DropdownItem key={it}>
-                                    {it}
-                                </DropdownItem>
+                            {availableModels.map((it) => (
+                                <DropdownItem key={it}>{it}</DropdownItem>
                             ))}
                         </DropdownMenu>
                     </Dropdown>

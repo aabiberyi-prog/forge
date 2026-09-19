@@ -11,11 +11,11 @@ import {
     DropdownTrigger,
     DropdownItem,
 } from '@nextui-org/react';
-import { BaseDirectory, readTextFile } from '@tauri-apps/api/fs';
+import { BaseDirectory, readTextFile } from '@tauri-apps/plugin-fs';
 import React, { useEffect, useRef, useState } from 'react';
-import { writeText } from '@tauri-apps/api/clipboard';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
-import { appWindow } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import toast, { Toaster } from 'react-hot-toast';
 import { listen } from '@tauri-apps/api/event';
 import { MdContentCopy } from 'react-icons/md';
@@ -23,7 +23,7 @@ import { MdSmartButton } from 'react-icons/md';
 import { useTranslation } from 'react-i18next';
 import { HiTranslate } from 'react-icons/hi';
 import { LuDelete } from 'react-icons/lu';
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 import { atom, useAtom } from 'jotai';
 import { getServiceName, getServiceSouceType, ServiceSourceType } from '../../../../utils/service_instance';
 import { useConfig, useSyncAtom, useVoice, useToastStyle } from '../../../../hooks';
@@ -33,10 +33,11 @@ import * as builtinTtsServices from '../../../../services/tts';
 import { languageList } from '../../../../utils/language';
 import detect from '../../../../utils/lang_detect';
 import { store } from '../../../../utils/store';
-import { info } from 'tauri-plugin-log-api';
-import { debug } from 'tauri-plugin-log-api';
+import { info } from '@tauri-apps/plugin-log';
+import { debug } from '@tauri-apps/plugin-log';
 import { sourceLanguageAtom, targetLanguageAtom } from '../LanguageArea';
 import SpeakButton from '../SpeakButton';
+const appWindow = getCurrentWebviewWindow();
 
 export const sourceTextAtom = atom('');
 export const detectLanguageAtom = atom('');
@@ -293,7 +294,7 @@ export default function SourceArea(props) {
     useEffect(() => {
         if (ttsServiceList && getServiceSouceType(ttsServiceList[0]) === ServiceSourceType.PLUGIN) {
             readTextFile(`plugins/tts/${getServiceName(ttsServiceList[0])}/info.json`, {
-                dir: BaseDirectory.AppConfig,
+                baseDir: BaseDirectory.AppConfig,
             }).then((infoStr) => {
                 setTtsPluginInfo(JSON.parse(infoStr));
             });
@@ -411,7 +412,10 @@ export default function SourceArea(props) {
 
         // snake_case to SNAKE_CASE
         if (/_[a-z]/.test(str2)) {
-            str2 = str2.split('_').map(it => it.toLocaleUpperCase()).join('_');
+            str2 = str2
+                .split('_')
+                .map((it) => it.toLocaleUpperCase())
+                .join('_');
         }
         if (str2 !== str) {
             return str2;
@@ -419,7 +423,10 @@ export default function SourceArea(props) {
 
         // SNAKE_CASE to kebab-case
         if (/^[A-Z]+(_[A-Z]+)*$/.test(str2)) {
-            str2 = str2.split('_').map(it => it.toLocaleLowerCase()).join('-');
+            str2 = str2
+                .split('_')
+                .map((it) => it.toLocaleLowerCase())
+                .join('-');
         }
         if (str2 !== str) {
             return str2;
@@ -427,7 +434,10 @@ export default function SourceArea(props) {
 
         // kebab-case to dot.notation
         if (/-/.test(str2)) {
-            str2 = str2.split('-').map(it => it.toLocaleLowerCase()).join('.');
+            str2 = str2
+                .split('-')
+                .map((it) => it.toLocaleLowerCase())
+                .join('.');
         }
         if (str2 !== str) {
             return str2;
@@ -475,9 +485,9 @@ export default function SourceArea(props) {
         }
 
         return str2;
-    }
+    };
     useEffect(() => {
-        textAreaRef.current.addEventListener("keydown", async (event) => {
+        textAreaRef.current.addEventListener('keydown', async (event) => {
             if (event.altKey && event.shiftKey && event.code === 'KeyU') {
                 const originText = textAreaRef.current.value;
                 const selectionStart = textAreaRef.current.selectionStart;
@@ -485,7 +495,8 @@ export default function SourceArea(props) {
                 const selectionText = originText.substring(selectionStart, selectionEnd);
 
                 const convertedText = transformVarName(selectionText);
-                const targetText = originText.substring(0, selectionStart) + convertedText + originText.substring(selectionEnd);
+                const targetText =
+                    originText.substring(0, selectionStart) + convertedText + originText.substring(selectionEnd);
 
                 await changeSourceText(targetText);
                 textAreaRef.current.selectionStart = selectionStart;
@@ -493,7 +504,6 @@ export default function SourceArea(props) {
             }
         });
     }, [textAreaRef]);
-
 
     // hide_source only hides the text body; action row stays visible.
     const textHidden = hideSource && windowType !== '[INPUT_TRANSLATE]';
@@ -600,9 +610,7 @@ export default function SourceArea(props) {
                                             color={languageManual ? 'primary' : 'secondary'}
                                             className='h-7 min-w-0 px-2'
                                         >
-                                            {detectLanguage
-                                                ? t(`languages.${detectLanguage}`)
-                                                : t('languages.auto')}
+                                            {detectLanguage ? t(`languages.${detectLanguage}`) : t('languages.auto')}
                                             {languageManual ? ' ✓' : ''}
                                         </Button>
                                     </DropdownTrigger>
@@ -623,9 +631,7 @@ export default function SourceArea(props) {
                                     >
                                         <DropdownItem key='auto'>{t('languages.auto')}</DropdownItem>
                                         {languageList.map((lang) => (
-                                            <DropdownItem key={lang}>
-                                                {t(`languages.${lang}`)}
-                                            </DropdownItem>
+                                            <DropdownItem key={lang}>{t(`languages.${lang}`)}</DropdownItem>
                                         ))}
                                     </DropdownMenu>
                                 </Dropdown>

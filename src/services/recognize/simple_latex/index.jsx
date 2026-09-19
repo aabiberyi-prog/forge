@@ -1,5 +1,5 @@
-import { readBinaryFile, BaseDirectory } from '@tauri-apps/api/fs';
-import { fetch, Body } from '@tauri-apps/api/http';
+import { readFile, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { fetch, Body } from '../../../utils/http.js';
 
 export async function recognize(base64, language, options = {}) {
     const { config } = options;
@@ -8,7 +8,7 @@ export async function recognize(base64, language, options = {}) {
 
     const url = 'https://server.simpletex.cn/api/latex_ocr/v2';
 
-    let file = await readBinaryFile('pot_screenshot_cut.png', { dir: BaseDirectory.AppCache });
+    let file = await readFile('pot_screenshot_cut.png', { baseDir: BaseDirectory.AppCache });
 
     const res = await fetch(url, {
         method: 'POST',

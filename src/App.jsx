@@ -1,20 +1,24 @@
-import { appWindow } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { BrowserRouter } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { warn } from 'tauri-plugin-log-api';
+import { warn } from '@tauri-apps/plugin-log';
 import React, { useEffect } from 'react';
 import { useTheme } from 'next-themes';
 
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import Screenshot from './window/Screenshot';
 import Translate from './window/Translate';
 import Recognize from './window/Recognize';
 import Updater from './window/Updater';
 import { store } from './utils/store';
 import Config from './window/Config';
+import Panel from './window/Panel';
+import Pin from './window/Pin';
+import PinHistory from './window/Pin/History';
 import { useConfig } from './hooks';
 import './style.css';
 import './i18n';
+const appWindow = getCurrentWebviewWindow();
 
 const windowMap = {
     translate: <Translate />,
@@ -22,6 +26,8 @@ const windowMap = {
     recognize: <Recognize />,
     config: <Config />,
     updater: <Updater />,
+    panel: <Panel />,
+    pin: <Pin />,
 };
 
 export default function App() {
@@ -35,7 +41,7 @@ export default function App() {
     const { i18n } = useTranslation();
 
     useEffect(() => {
-        store.load();
+        store.reload();
     }, []);
 
     useEffect(() => {
@@ -52,7 +58,11 @@ export default function App() {
                     e.preventDefault();
                 }
                 if (e.key === 'Escape') {
-                    await appWindow.close();
+                    if (appWindow.label === 'panel') {
+                        await invoke('hide_panel_window');
+                    } else {
+                        await appWindow.close();
+                    }
                 }
             });
         } else {
@@ -65,7 +75,11 @@ export default function App() {
                     e.preventDefault();
                 }
                 if (e.key === 'Escape') {
-                    await appWindow.close();
+                    if (appWindow.label === 'panel') {
+                        await invoke('hide_panel_window');
+                    } else {
+                        await appWindow.close();
+                    }
                 }
             });
         }
@@ -113,5 +127,12 @@ export default function App() {
         }
     }, [appFont, appFallbackFont, appFontSize]);
 
-    return <BrowserRouter>{windowMap[appWindow.label]}</BrowserRouter>;
+    const label = appWindow.label;
+    const view =
+        label === 'pin-history'
+            ? <PinHistory />
+            : label === 'pin' || label.startsWith('pin-')
+              ? <Pin />
+              : windowMap[label];
+    return <BrowserRouter>{view}</BrowserRouter>;
 }

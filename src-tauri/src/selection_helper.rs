@@ -94,6 +94,11 @@ pub fn start_selection_helper() {}
 /// Best-effort stop of selection helper when Pot quits.
 #[cfg(target_os = "windows")]
 pub fn stop_selection_helper() {
+    // An isolated profile can deliberately omit the helper. Its exit must not stop
+    // a helper belonging to the installed application.
+    if !helper_dir().join("PotTerminalHelper.ps1").exists() {
+        return;
+    }
     // Kill powershell processes whose command line is the helper script
     let _ = Command::new("powershell.exe")
         .args([

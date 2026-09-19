@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 
 export async function backup(url, username, password, name) {
     return await invoke('webdav', {

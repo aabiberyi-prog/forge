@@ -1,6 +1,6 @@
 import { Card, CardBody, CardFooter, Button, Skeleton, ButtonGroup, Tooltip } from '@nextui-org/react';
-import { sendNotification } from '@tauri-apps/api/notification';
-import { writeText } from '@tauri-apps/api/clipboard';
+import { sendNotification } from '@tauri-apps/plugin-notification';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { atom, useAtom, useAtomValue } from 'jotai';
 import React, { useEffect, useState } from 'react';
 import { CgSpaceBetween } from 'react-icons/cg';

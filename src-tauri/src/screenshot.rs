@@ -1,30 +1,28 @@
 use log::info;
+use tauri::Manager;
 
 #[tauri::command]
-pub fn screenshot(x: i32, y: i32) {
-    use crate::APP;
-    use dirs::cache_dir;
-    use screenshots::{Compression, Screen};
-    use std::fs;
+pub fn screenshot(x: i32, y: i32) -> Result<(), String> {
     info!("Screenshot screen with position: x={}, y={}", x, y);
-    let screens = Screen::all().unwrap();
-    for screen in screens {
-        let info = screen.display_info;
-        info!("Screen: {:?}", info);
-        if info.x == x && info.y == y {
-            let handle = APP.get().unwrap();
-            let mut app_cache_dir_path = cache_dir().expect("Get Cache Dir Failed");
-            app_cache_dir_path.push(&handle.config().tauri.bundle.identifier);
-            if !app_cache_dir_path.exists() {
-                // 创建目录
-                fs::create_dir_all(&app_cache_dir_path).expect("Create Cache Dir Failed");
-            }
-            app_cache_dir_path.push("pot_screenshot.png");
-
-            let image = screen.capture().unwrap();
-            let buffer = image.to_png(Compression::Fast).unwrap();
-            fs::write(app_cache_dir_path, buffer).unwrap();
-            break;
+    let monitors = xcap::Monitor::all().map_err(|error| error.to_string())?;
+    for monitor in monitors {
+        if monitor.x().map_err(|error| error.to_string())? == x
+            && monitor.y().map_err(|error| error.to_string())? == y
+        {
+            let directory = crate::APP
+                .get()
+                .unwrap()
+                .path()
+                .app_cache_dir()
+                .map_err(|error| error.to_string())?;
+            std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+            monitor
+                .capture_image()
+                .map_err(|error| error.to_string())?
+                .save(directory.join("pot_screenshot.png"))
+                .map_err(|error| error.to_string())?;
+            return Ok(());
         }
     }
+    Err(format!("No monitor found at ({x}, {y})"))
 }

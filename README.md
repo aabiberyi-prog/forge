@@ -1,5 +1,11 @@
 <img width="200px" src="public/icon.svg" align="left"/>
 
+# Pot Forge
+
+Windows 1.0 installer, updater, and migration notes:
+[docs/MIGRATION.md](docs/MIGRATION.md) ·
+[GitHub Releases](https://github.com/aabiberyi-prog/forge/releases)
+
 # Pot (派了个萌的翻译器)
 
 > 🌈 一个跨平台的划词翻译软件 ([QQ 频道](https://pd.qq.com/s/akns94e1r))
