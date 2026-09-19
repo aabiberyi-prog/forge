@@ -252,6 +252,9 @@ See [the Phase 2 execution record](PHASE-2-ABSORB-TODO.md).
 
 ### Phase 3 — Unification · 1–2 weeks
 
+Implementation is in progress on `phase-3/unification` from the Phase 2 head.
+See [the Phase 3 execution record](PHASE-3-UNIFICATION.md).
+
 - **Storage:** one SQLite DB via `tauri-plugin-sql` (tasks, clips, capture
   history, translate history). Settings stay JSON for hand-editability
 - **Migration:** one-time importer from all three existing config dirs —
