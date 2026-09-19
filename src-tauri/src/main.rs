@@ -25,6 +25,7 @@ use config::*;
 use features::capture::*;
 use features::clips::*;
 use features::recorder::*;
+use features::scroll::*;
 use features::hotkeys::*;
 use features::import_todo::*;
 use features::panel::*;
@@ -131,6 +132,13 @@ fn main() {
             // Register Global Shortcut
             crate::features::capture::ensure_capture_hotkey_defaults();
             crate::features::recorder::ensure_recording_hotkey_default();
+            if crate::config::get("hotkey_scrolling_capture")
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_default()
+                .is_empty()
+            {
+                crate::config::set("hotkey_scrolling_capture", "Alt+2");
+            }
             match register_shortcut("all") {
                 Ok(()) => {}
                 Err(e) => app
@@ -223,6 +231,8 @@ fn main() {
             finish_capture,
             recording_status,
             toggle_screen_recording,
+            scrolling_capture,
+            scroll_capture_available,
             secret_get,
             secret_set,
             list_hotkey_registry,

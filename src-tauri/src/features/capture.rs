@@ -64,7 +64,7 @@ fn civil_from_days(z: i32) -> (i32, u32, u32) {
     (y, m, d)
 }
 
-fn cache_cut_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn cache_cut_path(app: &AppHandle) -> Result<PathBuf, String> {
     let mut path = dirs::cache_dir().ok_or("cache dir missing")?;
     path.push(&app.config().identifier);
     fs::create_dir_all(&path).map_err(|error| error.to_string())?;
@@ -82,7 +82,7 @@ fn decode_png_base64(png_base64: &str) -> Result<Vec<u8>, String> {
         .map_err(|error| error.to_string())
 }
 
-fn copy_png_bytes(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn copy_png_bytes(bytes: &[u8]) -> Result<(), String> {
     use arboard::{Clipboard, ImageData};
     use image::ImageReader;
     use std::borrow::Cow;
@@ -105,7 +105,7 @@ fn copy_png_bytes(bytes: &[u8]) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn record_capture_history(app: &AppHandle, path: &Path) -> Result<(), String> {
+pub(crate) fn record_capture_history(app: &AppHandle, path: &Path, kind: &str) -> Result<(), String> {
     let conn = db::open(app)?;
     db::init_schema_on(&conn)?;
     let created_at = SystemTime::now()
@@ -114,7 +114,7 @@ fn record_capture_history(app: &AppHandle, path: &Path) -> Result<(), String> {
         .unwrap_or(0);
     conn.execute(
         "INSERT INTO capture_history(kind, path, created_at) VALUES(?1, ?2, ?3)",
-        params!["region", path.to_string_lossy(), created_at],
+        params![kind, path.to_string_lossy(), created_at],
     )
     .map_err(|error| error.to_string())?;
     Ok(())
@@ -132,7 +132,7 @@ pub fn finish_capture(png_base64: String, pin: bool) -> Result<String, String> {
     let save_path = dir.join(capture_filename(SystemTime::now()));
     fs::write(&save_path, &bytes).map_err(|error| error.to_string())?;
     copy_png_bytes(&bytes)?;
-    let _ = record_capture_history(app, &save_path);
+    let _ = record_capture_history(app, &save_path, "region");
     if pin {
         crate::window::pin_window();
     }

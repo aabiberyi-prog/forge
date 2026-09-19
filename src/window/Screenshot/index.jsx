@@ -27,7 +27,7 @@ export default function Screenshot() {
     useEffect(() => {
         invoke('get_capture_mode')
             .then((value) => {
-                if (value === 'save' || value === 'pin' || value === 'ocr') {
+                if (value === 'save' || value === 'pin' || value === 'ocr' || value === 'scroll') {
                     setMode(value);
                 }
             })
@@ -58,6 +58,12 @@ export default function Screenshot() {
         const height = bottom - top;
         if (width <= 0 || height <= 0) {
             warn('Screenshot area is too small');
+            await appWindow.close();
+            return;
+        }
+        if (mode === 'scroll') {
+            await appWindow.setAlwaysOnTop(false);
+            await invoke('scrolling_capture', { left, top, width, height });
             await appWindow.close();
             return;
         }

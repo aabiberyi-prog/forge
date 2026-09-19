@@ -2,7 +2,8 @@
 
 #[cfg(windows)]
 pub fn scrolling_capture() -> Result<(), String> {
-    Err("scrolling capture is Phase 6".to_string())
+    crate::features::scroll::start_scrolling_capture();
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

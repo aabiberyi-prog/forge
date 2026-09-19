@@ -380,6 +380,11 @@ pub fn recognize_window() {
 }
 
 #[cfg(not(target_os = "macos"))]
+pub fn open_screenshot_window() {
+    let _ = screenshot_window();
+}
+
+#[cfg(not(target_os = "macos"))]
 fn screenshot_window() -> WebviewWindow {
     let (window, _exists) = build_window("screenshot", "Screenshot");
 
