@@ -78,19 +78,20 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
             // Ensure existing windows reappear above Terminal/other apps briefly
             let _ = v.unminimize();
             let _ = v.show();
-            let keep_top = match get("translate_always_on_top") {
-                Some(val) => val.as_bool().unwrap_or(false),
-                None => false,
-            } || match get("translate_session_pinned") {
-                Some(val) => val.as_bool().unwrap_or(false),
-                None => false,
-            };
+            let keep_top = label != "panel"
+                && (match get("translate_always_on_top") {
+                    Some(val) => val.as_bool().unwrap_or(false),
+                    None => false,
+                } || match get("translate_session_pinned") {
+                    Some(val) => val.as_bool().unwrap_or(false),
+                    None => false,
+                });
             let _ = v.set_always_on_top(true);
             let _ = v.set_focus();
             // Restore unpinned unless user/config wants always-on-top
             if keep_top {
                 let _ = v.set_always_on_top(true);
-            } else {
+            } else if label != "panel" {
                 let _ = v.set_always_on_top(false);
             }
             (v, true)
@@ -128,7 +129,7 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
                 window.set_shadow(true).unwrap_or_default();
             }
             // Pot Forge: apply saved window opacity to new windows
-            if label != "screenshot" && label != "daemon" {
+            if label != "screenshot" && label != "daemon" && label != "panel" {
                 let opacity = match get("window_opacity") {
                     Some(v) => v.as_f64().unwrap_or(0.92),
                     None => 0.92,
@@ -139,6 +140,13 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
             (window, false)
         }
     }
+}
+
+pub fn panel_window() {
+    let (window, _exists) = build_window("panel", "Tasks");
+    let _ = window.set_skip_taskbar(true);
+    let _ = crate::features::panel::restore_panel_window(&window);
+    let _ = window.show();
 }
 
 pub fn config_window() {

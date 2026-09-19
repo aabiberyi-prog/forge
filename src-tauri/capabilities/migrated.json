@@ -2,7 +2,7 @@
     "identifier": "migrated",
     "description": "Local permissions for the existing Forge translation, OCR, settings, and updater windows.",
     "local": true,
-    "windows": ["daemon", "translate", "recognize", "screenshot", "config", "updater"],
+    "windows": ["daemon", "translate", "recognize", "screenshot", "config", "updater", "panel"],
     "permissions": [
         "core:default",
         "fs:allow-read-file",
