@@ -1,11 +1,13 @@
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::PathBuf;
 use tauri::AppHandle;
 
-use super::json_store::{app_data_dir, read_json, timestamp, write_json};
+use super::db;
+use super::json_store::{app_data_dir, read_json, timestamp};
 
 const TASKS_FILE: &str = "tasks.json";
+#[allow(dead_code)]
 const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,31 +37,95 @@ pub struct TaskPatch {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TasksFile {
-    schema_version: u32,
-    tasks: Vec<Task>,
+pub struct TasksFile {
+    pub schema_version: u32,
+    pub tasks: Vec<Task>,
 }
 
-fn tasks_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_data_dir(app)?.join(TASKS_FILE))
-}
-
-fn load_tasks(app: &AppHandle) -> Result<Vec<Task>, String> {
-    let path = tasks_path(app)?;
+fn load_json_tasks(app: &AppHandle) -> Result<Vec<Task>, String> {
+    let path = app_data_dir(app)?.join(TASKS_FILE);
     Ok(read_json::<TasksFile>(&path)?
         .map(|file| file.tasks)
         .unwrap_or_default())
 }
 
+pub fn migrate_json_tasks(app: &AppHandle) -> Result<(), String> {
+    let conn = db::open(app)?;
+    if db::meta_get(&conn, "tasks_migrated")?.as_deref() == Some("1") {
+        return Ok(());
+    }
+    let tasks = load_json_tasks(app)?;
+    if !tasks.is_empty() {
+        save_tasks(app, &tasks)?;
+    }
+    db::meta_set(&conn, "tasks_migrated", "1")
+}
+
+fn load_tasks(app: &AppHandle) -> Result<Vec<Task>, String> {
+    migrate_json_tasks(app)?;
+    let conn = db::open(app)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, title, done, order_index, created_at, updated_at, completed_at, archived_at, deleted_at FROM tasks",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                done: row.get::<_, i64>(2)? != 0,
+                order: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+                completed_at: row.get(6)?,
+                archived_at: row.get(7)?,
+                deleted_at: row.get(8)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+    let mut tasks = Vec::new();
+    for row in rows {
+        tasks.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(tasks)
+}
+
 fn save_tasks(app: &AppHandle, tasks: &[Task]) -> Result<(), String> {
-    let path = tasks_path(app)?;
-    write_json(
-        &path,
-        &TasksFile {
-            schema_version: SCHEMA_VERSION,
-            tasks: tasks.to_vec(),
-        },
-    )
+    let mut conn = db::open(app)?;
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM tasks", [])
+        .map_err(|error| error.to_string())?;
+    {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO tasks(id, title, done, order_index, created_at, updated_at, completed_at, archived_at, deleted_at)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            )
+            .map_err(|error| error.to_string())?;
+        for task in tasks {
+            stmt.execute(params![
+                task.id,
+                task.title,
+                if task.done { 1 } else { 0 },
+                task.order,
+                task.created_at,
+                task.updated_at,
+                task.completed_at,
+                task.archived_at,
+                task.deleted_at,
+            ])
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub fn import_task_list(app: &AppHandle, tasks: Vec<Task>) -> Result<(), String> {
+    save_tasks(app, &tasks)?;
+    let conn = db::open(app)?;
+    db::meta_set(&conn, "tasks_migrated", "1")
 }
 
 fn next_id() -> String {

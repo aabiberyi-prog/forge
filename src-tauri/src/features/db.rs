@@ -1,0 +1,101 @@
+use rusqlite::{params, Connection};
+use std::fs;
+use std::path::PathBuf;
+use tauri::AppHandle;
+
+pub fn history_db_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let identifier = app.config().identifier.clone();
+    let dir = dirs::config_dir()
+        .ok_or_else(|| "config dir missing".to_string())?
+        .join(identifier);
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir.join("history.db"))
+}
+
+pub fn open(app: &AppHandle) -> Result<Connection, String> {
+    let path = history_db_path(app)?;
+    let conn = Connection::open(path).map_err(|error| error.to_string())?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|error| error.to_string())?;
+    Ok(conn)
+}
+
+pub fn init_schema(app: &AppHandle) -> Result<(), String> {
+    let conn = open(app)?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS history(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            source TEXT NOT NULL,
+            target TEXT NOT NULL,
+            service TEXT NOT NULL,
+            result TEXT NOT NULL,
+            timestamp INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS tasks(
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            done INTEGER NOT NULL,
+            order_index INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            archived_at TEXT,
+            deleted_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS clips(
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            text TEXT NOT NULL,
+            order_index INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS clip_images(
+            id TEXT PRIMARY KEY,
+            clip_id TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(clip_id) REFERENCES clips(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS capture_history(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            path TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS meta(
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        "#,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub fn meta_get(conn: &Connection, key: &str) -> Result<Option<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT value FROM meta WHERE key = ?1")
+        .map_err(|error| error.to_string())?;
+    let mut rows = stmt
+        .query(params![key])
+        .map_err(|error| error.to_string())?;
+    match rows.next().map_err(|error| error.to_string())? {
+        Some(row) => Ok(Some(row.get(0).map_err(|error| error.to_string())?)),
+        None => Ok(None),
+    }
+}
+
+pub fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}

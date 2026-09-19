@@ -5,12 +5,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
-use super::json_store::{app_data_dir, read_json, timestamp, write_json};
+use super::db;
+use super::json_store::{app_data_dir, read_json, timestamp};
+use rusqlite::params;
 use crate::platform::file_clipboard;
 
 const COPY_ITEMS_FILE: &str = "copy-items.json";
 const COPY_ASSETS_DIR: &str = "copy-assets";
 const COPY_FILE_CLIPBOARD_DIR: &str = "copy-file-clipboard";
+#[allow(dead_code)]
 const SCHEMA_VERSION: u32 = 1;
 const MAX_COPY_IMAGES: usize = 20;
 const MAX_COPY_IMAGE_BYTES: usize = 10 * 1024 * 1024;
@@ -83,9 +86,9 @@ pub struct CopyItemInput {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CopyItemsFile {
-    schema_version: u32,
-    items: Vec<CopyItem>,
+pub struct CopyItemsFile {
+    pub schema_version: u32,
+    pub items: Vec<CopyItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,28 +111,137 @@ fn copy_file_clipboard_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir(app)?.join(COPY_FILE_CLIPBOARD_DIR))
 }
 
-fn load_copy_items(app: &AppHandle) -> Result<Vec<CopyItem>, String> {
+fn load_json_copy_items(app: &AppHandle) -> Result<Vec<CopyItem>, String> {
     let path = copy_items_path(app)?;
     if let Some(file) = read_json::<CopyItemsFile>(&path)? {
         if !file.items.is_empty() {
             return Ok(file.items);
         }
     }
+    Ok(Vec::new())
+}
 
-    let items = default_copy_items();
-    save_copy_items(app, &items)?;
+pub fn migrate_json_clips(app: &AppHandle) -> Result<(), String> {
+    let conn = db::open(app)?;
+    if db::meta_get(&conn, "clips_migrated")?.as_deref() == Some("1") {
+        return Ok(());
+    }
+    let items = load_json_copy_items(app)?;
+    if items.is_empty() {
+        save_copy_items(app, &default_copy_items())?;
+    } else {
+        save_copy_items(app, &items)?;
+    }
+    db::meta_set(&conn, "clips_migrated", "1")
+}
+
+fn load_copy_items(app: &AppHandle) -> Result<Vec<CopyItem>, String> {
+    migrate_json_clips(app)?;
+    let conn = db::open(app)?;
+    let mut stmt = conn
+        .prepare("SELECT id, title, text, order_index, created_at, updated_at FROM clips")
+        .map_err(|error| error.to_string())?;
+    let clip_rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    drop(stmt);
+    let mut items = Vec::new();
+    for (id, title, text, order, created_at, updated_at) in clip_rows {
+        let mut img_stmt = conn
+            .prepare(
+                "SELECT id, file_name, mime_type, relative_path, size_bytes, created_at FROM clip_images WHERE clip_id = ?1",
+            )
+            .map_err(|error| error.to_string())?;
+        let images = img_stmt
+            .query_map(params![id], |image| {
+                Ok(CopyImage {
+                    id: image.get(0)?,
+                    file_name: image.get(1)?,
+                    mime_type: image.get(2)?,
+                    relative_path: image.get(3)?,
+                    size_bytes: image.get(4)?,
+                    created_at: image.get(5)?,
+                })
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        items.push(CopyItem {
+            id,
+            title,
+            text,
+            images,
+            order,
+            created_at,
+            updated_at,
+        });
+    }
     Ok(items)
 }
 
 fn save_copy_items(app: &AppHandle, items: &[CopyItem]) -> Result<(), String> {
-    let path = copy_items_path(app)?;
-    write_json(
-        &path,
-        &CopyItemsFile {
-            schema_version: SCHEMA_VERSION,
-            items: items.to_vec(),
-        },
-    )
+    let mut conn = db::open(app)?;
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM clip_images", [])
+        .map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM clips", [])
+        .map_err(|error| error.to_string())?;
+    {
+        let mut clip_stmt = tx
+            .prepare(
+                "INSERT INTO clips(id, title, text, order_index, created_at, updated_at) VALUES(?1,?2,?3,?4,?5,?6)",
+            )
+            .map_err(|error| error.to_string())?;
+        let mut image_stmt = tx
+            .prepare(
+                "INSERT INTO clip_images(id, clip_id, file_name, mime_type, relative_path, size_bytes, created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            )
+            .map_err(|error| error.to_string())?;
+        for item in items {
+            clip_stmt
+                .execute(params![
+                    item.id,
+                    item.title,
+                    item.text,
+                    item.order,
+                    item.created_at,
+                    item.updated_at,
+                ])
+                .map_err(|error| error.to_string())?;
+            for image in &item.images {
+                image_stmt
+                    .execute(params![
+                        image.id,
+                        item.id,
+                        image.file_name,
+                        image.mime_type,
+                        image.relative_path,
+                        image.size_bytes,
+                        image.created_at,
+                    ])
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+    }
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub fn import_clip_list(app: &AppHandle, items: Vec<CopyItem>) -> Result<(), String> {
+    save_copy_items(app, &items)?;
+    let conn = db::open(app)?;
+    db::meta_set(&conn, "clips_migrated", "1")
 }
 
 fn default_copy_items() -> Vec<CopyItem> {

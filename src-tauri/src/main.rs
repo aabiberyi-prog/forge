@@ -97,6 +97,15 @@ fn main() {
             // Init Config
             info!("Init Config Store");
             init_config(app);
+            if let Err(error) = crate::features::db::init_schema(app.handle()) {
+                log::warn!("Forge database init failed: {error}");
+            }
+            if let Err(error) = crate::features::tasks::migrate_json_tasks(app.handle()) {
+                log::warn!("Task JSON migration failed: {error}");
+            }
+            if let Err(error) = crate::features::clips::migrate_json_clips(app.handle()) {
+                log::warn!("Clip JSON migration failed: {error}");
+            }
             // Check First Run
             if is_first_run() {
                 // Open Config Window
