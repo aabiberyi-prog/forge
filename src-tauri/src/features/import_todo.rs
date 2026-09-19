@@ -231,4 +231,78 @@ mod tests {
         let _ = fs::remove_dir_all(tmp);
         let _ = fs::remove_dir_all(snap);
     }
+
+    #[test]
+    #[ignore = "writes live com.aabiber.pot-forge; set FORGE_LIVE_IMPORT=1"]
+    fn live_profile_merge_from_desktop_todo() {
+        assert_eq!(
+            std::env::var("FORGE_LIVE_IMPORT").as_deref(),
+            Ok("1"),
+            "refusing to touch the live profile"
+        );
+        let dir = desktop_todo_dir().expect("Desktop ToDo source dir");
+        let dest_root = dirs::config_dir()
+            .expect("config dir")
+            .join("com.aabiber.pot-forge");
+        let db_path = dest_root.join("history.db");
+        let dest_assets = dest_root.join("copy-assets");
+        let (tasks, clips) = load_source(&dir).expect("legacy JSON");
+        assert_eq!(tasks.len(), 86);
+        assert_eq!(clips.len(), 9);
+        let snap = merge::snapshot_dir(&db_path, &dest_assets).expect("snapshot");
+        eprintln!("live import snapshot {}", snap.display());
+        let mut conn = Connection::open(&db_path).expect("open live history.db");
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        init_schema_on(&conn).unwrap();
+        let preview = merge_into(&mut conn, &tasks, &clips, &dir, &dest_root, true).unwrap();
+        eprintln!(
+            "preview added_tasks={} skipped_tasks={} task_conflicts={} added_clips={} images={} dest_only_tasks={}",
+            preview.tasks_added,
+            preview.tasks_skipped,
+            preview.task_conflicts.len(),
+            preview.clips_added,
+            preview.images_copied,
+            preview.destination_only_tasks
+        );
+        assert_eq!(preview.tasks_added, 86);
+        assert_eq!(preview.clips_added, 9);
+        assert_eq!(preview.images_copied, 8);
+        assert!(preview.task_conflicts.is_empty());
+        assert!(preview.clip_conflicts.is_empty());
+        if std::env::var("FORGE_LIVE_IMPORT_APPLY").as_deref() != Ok("1") {
+            return;
+        }
+        let mut report = merge_into(&mut conn, &tasks, &clips, &dir, &dest_root, false).unwrap();
+        report.snapshot_path = Some(snap.to_string_lossy().to_string());
+        merge::record_ledger(&conn, &report, &dir.to_string_lossy()).unwrap();
+        assert_eq!(report.tasks_added, 86);
+        assert_eq!(report.clips_added, 9);
+        assert_eq!(report.images_copied, 8);
+        let task_n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
+            .unwrap();
+        let clip_n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        let template: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips WHERE id='copy-template-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(task_n, 86);
+        assert_eq!(clip_n, 10);
+        assert_eq!(template, 1);
+        for item in &clips {
+            for image in &item.images {
+                let source = dir.join(&image.relative_path);
+                let dest = dest_root.join(&image.relative_path);
+                assert_eq!(fs::read(&source).unwrap(), fs::read(&dest).unwrap());
+            }
+        }
+        let again = merge_into(&mut conn, &tasks, &clips, &dir, &dest_root, false).unwrap();
+        assert_eq!(again.tasks_added, 0);
+        assert_eq!(again.clips_added, 0);
+    }
 }
