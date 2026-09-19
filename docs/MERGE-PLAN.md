@@ -318,6 +318,9 @@ Implementation is complete on `phase-6/scrolling-capture`. See
 
 ### Phase 7 — Windows 1.0 · 1–2 weeks
 
+Implementation is complete on `phase-7/windows-1.0`. See
+[the Phase 7 execution record](PHASE-7-WINDOWS-1.0.md). Phase 8 has not started.
+
 NSIS installer · updater pointed at Forge releases · GitHub Actions build ·
 migration guide for existing Pot / ShareX / Desktop Todo users.
 
