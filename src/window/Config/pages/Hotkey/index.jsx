@@ -1,11 +1,11 @@
-import { unregister, isRegistered } from '@tauri-apps/plugin-global-shortcut';
+import { unregister } from '@tauri-apps/plugin-global-shortcut';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { CardBody } from '@nextui-org/react';
 import { Button } from '@nextui-org/react';
 import { Input } from '@nextui-org/react';
 import { Card } from '@nextui-org/react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { useConfig } from '../../../../hooks/useConfig';
 import { useToastStyle } from '../../../../hooks';
@@ -45,6 +45,99 @@ const keyMap = {
     Suspend: 'Suspend',
 };
 
+function keyDown(e, setKey) {
+    e.preventDefault();
+    if (e.key === 'Escape') {
+        return;
+    }
+    if (e.keyCode === 8) {
+        setKey('');
+        return;
+    }
+    let newValue = '';
+    if (e.ctrlKey) newValue = 'Ctrl';
+    if (e.shiftKey) newValue = `${newValue}${newValue.length > 0 ? '+' : ''}Shift`;
+    if (e.metaKey) newValue = `${newValue}${newValue.length > 0 ? '+' : ''}${osType === 'Darwin' ? 'Command' : 'Super'}`;
+    if (e.altKey) newValue = `${newValue}${newValue.length > 0 ? '+' : ''}Alt`;
+    let code = e.code;
+    if (code.startsWith('Key')) code = code.substring(3);
+    else if (code.startsWith('Digit')) code = code.substring(5);
+    else if (code.startsWith('Numpad')) code = 'Num' + code.substring(6);
+    else if (code.startsWith('Arrow')) code = code.substring(5);
+    else if (code.startsWith('Intl')) code = code.substring(4);
+    else if (/F\d+/.test(code)) {
+        /* keep Fx */
+    } else if (keyMap[code] !== undefined) code = keyMap[code];
+    else code = '';
+    setKey(`${newValue}${newValue.length > 0 && code.length > 0 ? '+' : ''}${code}`);
+}
+
+function HotkeyField({ name, title, stored, persist, t, toastStyle, onChanged }) {
+    const [draft, setDraft] = useState(stored || '');
+    const previous = useRef(stored || '');
+
+    useEffect(() => {
+        setDraft(stored || '');
+        previous.current = stored || '';
+    }, [stored]);
+
+    const confirm = async () => {
+        try {
+            await invoke('register_shortcut_by_frontend', { name, shortcut: draft || '' });
+            persist(draft || '');
+            previous.current = draft || '';
+            toast.success(
+                draft ? t('config.hotkey.success') : t('config.hotkey.disabled', { defaultValue: 'Hotkey disabled' }),
+                { style: toastStyle }
+            );
+        } catch (error) {
+            setDraft(previous.current);
+            persist(previous.current);
+            if (previous.current) {
+                try {
+                    await invoke('register_shortcut_by_frontend', { name, shortcut: previous.current });
+                } catch {
+                    /* keep previous if OS still holds it */
+                }
+            }
+            toast.error(String(error), { style: toastStyle });
+        }
+        onChanged?.();
+    };
+
+    return (
+        <div className='config-item'>
+            <h3 className='my-auto'>{title}</h3>
+            <Input
+                type='hotkey'
+                variant='bordered'
+                value={draft}
+                label={t('config.hotkey.set_hotkey')}
+                className='max-w-[50%]'
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        setDraft(previous.current);
+                        if (previous.current) {
+                            invoke('register_shortcut_by_frontend', { name, shortcut: previous.current }).catch(() => {});
+                        }
+                        return;
+                    }
+                    keyDown(event, setDraft);
+                }}
+                onFocus={() => {
+                    if (draft) unregister(draft).catch(() => {});
+                }}
+                endContent={
+                    <Button size='sm' variant='flat' onPress={confirm}>
+                        {t('common.ok')}
+                    </Button>
+                }
+            />
+        </div>
+    );
+}
+
 export default function Hotkey() {
     const [selectionTranslate, setSelectionTranslate] = useConfig('hotkey_selection_translate', '');
     const [inputTranslate, setInputTranslate] = useConfig('hotkey_input_translate', '');
@@ -54,345 +147,65 @@ export default function Hotkey() {
     const [pinToScreen, setPinToScreen] = useConfig('hotkey_pin_to_screen', 'Alt+3');
     const [screenRecording, setScreenRecording] = useConfig('hotkey_screen_recording', 'Alt+4');
     const [scrollingCapture, setScrollingCapture] = useConfig('hotkey_scrolling_capture', 'Alt+2');
-
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
     const [registry, setRegistry] = useState([]);
 
-    useEffect(() => {
+    const refreshRegistry = () => {
         invoke('list_hotkey_registry')
             .then((items) => setRegistry(Array.isArray(items) ? items : []))
             .catch(() => setRegistry([]));
+    };
+
+    useEffect(() => {
+        refreshRegistry();
     }, []);
 
-    function keyDown(e, setKey) {
-        e.preventDefault();
-        if (e.keyCode === 8) {
-            setKey('');
-        } else {
-            let newValue = '';
-            if (e.ctrlKey) {
-                newValue = 'Ctrl';
-            }
-            if (e.shiftKey) {
-                newValue = `${newValue}${newValue.length > 0 ? '+' : ''}Shift`;
-            }
-            if (e.metaKey) {
-                newValue = `${newValue}${newValue.length > 0 ? '+' : ''}${osType === 'Darwin' ? 'Command' : 'Super'}`;
-            }
-            if (e.altKey) {
-                newValue = `${newValue}${newValue.length > 0 ? '+' : ''}Alt`;
-            }
-            let code = e.code;
-            if (code.startsWith('Key')) {
-                code = code.substring(3);
-            } else if (code.startsWith('Digit')) {
-                code = code.substring(5);
-            } else if (code.startsWith('Numpad')) {
-                code = 'Num' + code.substring(6);
-            } else if (code.startsWith('Arrow')) {
-                code = code.substring(5);
-            } else if (code.startsWith('Intl')) {
-                code = code.substring(4);
-            } else if (/F\d+/.test(code)) {
-            } else if (keyMap[code] !== undefined) {
-                code = keyMap[code];
-            } else {
-                code = '';
-            }
-            setKey(`${newValue}${newValue.length > 0 && code.length > 0 ? '+' : ''}${code}`);
-        }
-    }
-
-    function registerHandler(name, key) {
-        isRegistered(key).then((res) => {
-            if (res) {
-                toast.error(t('config.hotkey.is_register'), { style: toastStyle });
-            } else {
-                invoke('register_shortcut_by_frontend', {
-                    name: name,
-                    shortcut: key,
-                }).then(
-                    () => {
-                        toast.success(t('config.hotkey.success'), { style: toastStyle });
-                    },
-                    (e) => {
-                        toast.error(e, { style: toastStyle });
-                    }
-                );
-            }
-        });
-    }
+    const rows = [
+        ['hotkey_selection_translate', t('config.hotkey.selection_translate'), selectionTranslate, setSelectionTranslate],
+        ['hotkey_input_translate', t('config.hotkey.input_translate'), inputTranslate, setInputTranslate],
+        ['hotkey_ocr_recognize', t('config.hotkey.ocr_recognize'), ocrRecognize, setOcrRecognize],
+        ['hotkey_ocr_translate', t('config.hotkey.ocr_translate'), ocrTranslate, setOcrTranslate],
+        ['hotkey_capture_region', t('config.hotkey.capture_region'), captureRegion, setCaptureRegion],
+        ['hotkey_pin_to_screen', t('config.hotkey.pin_to_screen'), pinToScreen, setPinToScreen],
+        ['hotkey_screen_recording', t('config.hotkey.screen_recording'), screenRecording, setScreenRecording],
+        ['hotkey_scrolling_capture', t('config.hotkey.scrolling_capture'), scrollingCapture, setScrollingCapture],
+    ];
 
     return (
         <Card>
             <Toaster />
             <CardBody>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.selection_translate')}</h3>
-                    {selectionTranslate !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={selectionTranslate}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setSelectionTranslate);
-                            }}
-                            onFocus={() => {
-                                unregister(selectionTranslate);
-                                setSelectionTranslate('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${selectionTranslate === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_selection_translate', selectionTranslate);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
+                {rows.map(([name, title, stored, persist]) =>
+                    stored === null ? null : (
+                        <HotkeyField
+                            key={name}
+                            name={name}
+                            title={title}
+                            stored={stored}
+                            persist={persist}
+                            t={t}
+                            toastStyle={toastStyle}
+                            onChanged={refreshRegistry}
                         />
-                    )}
-                </div>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.input_translate')}</h3>
-                    {inputTranslate !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={inputTranslate}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setInputTranslate);
-                            }}
-                            onFocus={() => {
-                                unregister(inputTranslate);
-                                setInputTranslate('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${inputTranslate === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_input_translate', inputTranslate);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
-                        />
-                    )}
-                </div>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.ocr_recognize')}</h3>
-                    {ocrRecognize !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={ocrRecognize}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setOcrRecognize);
-                            }}
-                            onFocus={() => {
-                                unregister(ocrRecognize);
-                                setOcrRecognize('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${ocrRecognize === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_ocr_recognize', ocrRecognize);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
-                        />
-                    )}
-                </div>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.ocr_translate')}</h3>
-                    {ocrTranslate !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={ocrTranslate}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setOcrTranslate);
-                            }}
-                            onFocus={() => {
-                                unregister(ocrTranslate);
-                                setOcrTranslate('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${ocrTranslate === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_ocr_translate', ocrTranslate);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
-                        />
-                    )}
-                </div>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.capture_region')}</h3>
-                    {captureRegion !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={captureRegion}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setCaptureRegion);
-                            }}
-                            onFocus={() => {
-                                unregister(captureRegion);
-                                setCaptureRegion('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${captureRegion === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_capture_region', captureRegion);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
-                        />
-                    )}
-                </div>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.pin_to_screen')}</h3>
-                    {pinToScreen !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={pinToScreen}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setPinToScreen);
-                            }}
-                            onFocus={() => {
-                                unregister(pinToScreen);
-                                setPinToScreen('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${pinToScreen === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_pin_to_screen', pinToScreen);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
-                        />
-                    )}
-                </div>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.screen_recording')}</h3>
-                    {screenRecording !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={screenRecording}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setScreenRecording);
-                            }}
-                            onFocus={() => {
-                                unregister(screenRecording);
-                                setScreenRecording('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${screenRecording === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_screen_recording', screenRecording);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
-                        />
-                    )}
-                </div>
-                <div className='config-item'>
-                    <h3 className='my-auto'>{t('config.hotkey.scrolling_capture')}</h3>
-                    {scrollingCapture !== null && (
-                        <Input
-                            type='hotkey'
-                            variant='bordered'
-                            value={scrollingCapture}
-                            label={t('config.hotkey.set_hotkey')}
-                            className='max-w-[50%]'
-                            onKeyDown={(e) => {
-                                keyDown(e, setScrollingCapture);
-                            }}
-                            onFocus={() => {
-                                unregister(scrollingCapture);
-                                setScrollingCapture('');
-                            }}
-                            endContent={
-                                <Button
-                                    size='sm'
-                                    variant='flat'
-                                    className={`${scrollingCapture === '' && 'hidden'}`}
-                                    onPress={() => {
-                                        registerHandler('hotkey_scrolling_capture', scrollingCapture);
-                                    }}
-                                >
-                                    {t('common.ok')}
-                                </Button>
-                            }
-                        />
-                    )}
-                </div>
-                {registry.length > 0 && (
-                    <div className='mt-4'>
-                        <h3 className='mb-2'>{t('config.hotkey.registry', { defaultValue: 'Planned bindings' })}</h3>
-                        {registry.map((item) => (
-                            <div key={item.id} className='config-item text-small'>
-                                <span>
-                                    {item.shortcut} · {item.action} ({item.source})
-                                </span>
-                                <span className='text-default-400'>
-                                    {item.implemented
-                                        ? item.error || 'ready'
-                                        : item.error || 'later'}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
+                    )
                 )}
+                <div className='mt-4'>
+                    <h3 className='mb-2'>{t('config.hotkey.registry', { defaultValue: 'Hotkey status' })}</h3>
+                    {registry.map((item) => (
+                        <div key={item.id} className='config-item text-small'>
+                            <span>
+                                {item.shortcut || t('config.hotkey.none', { defaultValue: '(none)' })} · {item.action} (
+                                {item.source})
+                            </span>
+                            <span className='text-default-400'>
+                                {item.registered
+                                    ? t('config.hotkey.ready', { defaultValue: 'registered' })
+                                    : item.error || t('config.hotkey.later', { defaultValue: 'not registered' })}
+                            </span>
+                        </div>
+                    ))}
+                </div>
             </CardBody>
         </Card>
     );

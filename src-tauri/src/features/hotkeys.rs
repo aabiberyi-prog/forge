@@ -87,6 +87,15 @@ pub fn planned_bindings() -> Vec<HotkeyStatus> {
             error: None,
         },
         HotkeyStatus {
+            id: "hotkey_input_translate".into(),
+            action: "Input translate".into(),
+            shortcut: configured("hotkey_input_translate", ""),
+            source: "Pot".into(),
+            implemented: true,
+            registered: false,
+            error: None,
+        },
+        HotkeyStatus {
             id: "hotkey_selection_translate".into(),
             action: "Selection translate".into(),
             shortcut: configured("hotkey_selection_translate", "Alt+Q"),
@@ -143,14 +152,39 @@ pub fn register_implemented() -> Vec<HotkeyStatus> {
 #[tauri::command]
 pub fn list_hotkey_registry() -> Vec<HotkeyStatus> {
     let mut items = planned_bindings();
-    if let Some(app) = APP.get() {
-        for item in items
-            .iter_mut()
-            .filter(|item| item.implemented && !item.shortcut.is_empty())
-        {
-            item.registered = app.global_shortcut().is_registered(item.shortcut.as_str());
-            if item.registered {
-                item.error = None;
+    let app = APP.get();
+    for index in 0..items.len() {
+        if items[index].shortcut.is_empty() {
+            items[index].registered = false;
+            items[index].error = Some("disabled".into());
+            continue;
+        }
+        let conflict = items.iter().enumerate().find_map(|(other_index, other)| {
+            if other_index != index
+                && !other.shortcut.is_empty()
+                && other.shortcut.eq_ignore_ascii_case(&items[index].shortcut)
+            {
+                Some(format!(
+                    "conflicts with {} ({})",
+                    other.action, other.shortcut
+                ))
+            } else {
+                None
+            }
+        });
+        if let Some(error) = conflict {
+            items[index].registered = false;
+            items[index].error = Some(error);
+            continue;
+        }
+        if let Some(app) = app {
+            items[index].registered = app
+                .global_shortcut()
+                .is_registered(items[index].shortcut.as_str());
+            if items[index].registered {
+                items[index].error = None;
+            } else if items[index].implemented {
+                items[index].error = Some("not registered".into());
             }
         }
     }
@@ -192,5 +226,24 @@ mod tests {
             .find(|item| item.id == "hotkey_capture_region")
             .unwrap();
         assert!(capture.implemented);
+    }
+
+    #[test]
+    fn eight_configured_actions_have_status_rows() {
+        let bindings = planned_bindings();
+        let ids: Vec<&str> = bindings.iter().map(|item| item.id.as_str()).collect();
+        for id in [
+            "hotkey_selection_translate",
+            "hotkey_input_translate",
+            "hotkey_ocr_recognize",
+            "hotkey_ocr_translate",
+            "hotkey_capture_region",
+            "hotkey_pin_to_screen",
+            "hotkey_screen_recording",
+            "hotkey_scrolling_capture",
+        ] {
+            assert!(ids.contains(&id), "missing {id}");
+        }
+        assert_eq!(ids.len(), 8);
     }
 }

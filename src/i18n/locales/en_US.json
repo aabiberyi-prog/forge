@@ -161,7 +161,11 @@
                 "scrolling_capture": "Scrolling capture",
                 "is_register": "The hotkey is already registered",
                 "success": "Hotkey register success",
-                "set_hotkey": "Press to Set Hotkey"
+                "set_hotkey": "Press to Set Hotkey",
+                "disabled": "Hotkey disabled",
+                "none": "(none)",
+                "ready": "registered",
+                "later": "not registered"
             },
             "service": {
                 "label": "Service",

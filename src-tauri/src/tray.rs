@@ -203,6 +203,7 @@ fn handle_menu(app: &AppHandle, event: MenuEvent) {
         }
         "restart" => app.restart(),
         "quit" => {
+            crate::features::recorder::finalize_recording_on_quit();
             let _ = app.global_shortcut().unregister_all();
             crate::selection_helper::stop_selection_helper();
             info!("============== Quit App ==============");

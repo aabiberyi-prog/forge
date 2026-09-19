@@ -258,6 +258,7 @@ fn main() {
                 api.prevent_exit();
             }
             tauri::RunEvent::Exit => {
+                crate::features::recorder::finalize_recording_on_quit();
                 selection_helper::stop_selection_helper();
             }
             _ => {}

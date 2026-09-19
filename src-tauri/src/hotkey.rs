@@ -141,6 +141,14 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
 #[tauri::command]
 pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), String> {
     let app_handle = APP.get().unwrap();
+    if shortcut.trim().is_empty() {
+        if let Some(current) = get(name).and_then(|value| value.as_str().map(str::to_owned)) {
+            if !current.is_empty() {
+                let _ = app_handle.global_shortcut().unregister(current.as_str());
+            }
+        }
+        return Ok(());
+    }
     match name {
         "hotkey_selection_translate" => register(
             app_handle,
@@ -180,7 +188,7 @@ pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), S
             start_scrolling_capture,
             shortcut,
         )?,
-        _ => {}
+        _ => return Err(format!("unknown hotkey {name}")),
     }
     Ok(())
 }

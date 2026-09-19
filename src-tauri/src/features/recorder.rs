@@ -81,10 +81,16 @@ fn path_ffmpeg() -> Option<PathBuf> {
 pub fn resolve_ffmpeg() -> Result<PathBuf, String> {
     let sidecar = sidecar_ffmpeg_path()?;
     if sidecar.exists() {
-        return Ok(sidecar);
+        if ffmpeg_responds(&sidecar) {
+            return Ok(sidecar);
+        }
+        return Err(format!("ffmpeg sidecar is not runnable: {}", sidecar.display()));
     }
     if let Some(path) = path_ffmpeg() {
-        return Ok(path);
+        if ffmpeg_responds(&path) {
+            return Ok(path);
+        }
+        return Err(format!("ffmpeg on PATH is not runnable: {}", path.display()));
     }
     Err("ffmpeg is not installed yet".into())
 }
@@ -136,6 +142,54 @@ fn recording_filename(now: SystemTime) -> String {
     crate::features::capture::capture_filename(now).replace(".png", ".mp4")
 }
 
+fn unique_recording_path(dir: &Path, now: SystemTime) -> PathBuf {
+    let name = recording_filename(now);
+    let candidate = dir.join(&name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let stem = Path::new(&name)
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Forge".into());
+    let mut index = 2u32;
+    loop {
+        let path = dir.join(format!("{stem}-{index}.mp4"));
+        if !path.exists() {
+            return path;
+        }
+        index += 1;
+    }
+}
+
+pub fn recording_output_is_valid(path: &Path, success: bool) -> Result<(), String> {
+    if !success {
+        return Err("ffmpeg exited with an error".into());
+    }
+    let meta = fs::metadata(path).map_err(|_| format!("recording missing: {}", path.display()))?;
+    if meta.len() < 32 {
+        return Err(format!("recording too small: {}", path.display()));
+    }
+    Ok(())
+}
+
+fn child_is_running(child: &mut Child) -> bool {
+    match child.try_wait() {
+        Ok(None) => true,
+        Ok(Some(_)) | Err(_) => false,
+    }
+}
+
+fn ffmpeg_responds(path: &Path) -> bool {
+    Command::new(path)
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 fn notify(title: &str, body: &str) {
     if let Some(app) = APP.get() {
         use tauri_plugin_notification::NotificationExt;
@@ -158,20 +212,31 @@ fn start_recording() -> Result<PathBuf, String> {
     };
     let dir = capture_save_dir();
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    let path = dir.join(recording_filename(SystemTime::now()));
+    let path = unique_recording_path(&dir, SystemTime::now());
+    let log_path = path.with_extension("ffmpeg.log");
+    let log_file = File::create(&log_path).map_err(|error| error.to_string())?;
     let args = ffmpeg_args(&path);
     let mut command = Command::new(&ffmpeg);
     command
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::from(log_file));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    let child = command.spawn().map_err(|error| error.to_string())?;
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    if !child_is_running(&mut child) {
+        let log = fs::read_to_string(&log_path).unwrap_or_default();
+        let _ = fs::remove_file(&path);
+        return Err(format!(
+            "ffmpeg exited immediately: {}",
+            log.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+        ));
+    }
     *RECORDING.lock().map_err(|error| error.to_string())? = Some(ActiveRecording {
         child,
         path: path.clone(),
@@ -190,7 +255,17 @@ fn stop_recording() -> Result<PathBuf, String> {
         let _ = stdin.write_all(b"q\n");
         let _ = stdin.flush();
     }
-    let _ = active.child.wait();
+    let status = active.child.wait();
+    let success = status.as_ref().map(|code| code.success()).unwrap_or(false);
+    if let Err(error) = recording_output_is_valid(&active.path, success) {
+        let log = fs::read_to_string(active.path.with_extension("ffmpeg.log")).unwrap_or_default();
+        notify("Forge", &format!("Recording failed: {error}"));
+        return Err(if log.is_empty() {
+            error
+        } else {
+            format!("{error}: {}", log.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" / "))
+        });
+    }
     if let Some(app) = APP.get() {
         if let Ok(conn) = db::open(app) {
             let _ = db::init_schema_on(&conn);
@@ -212,11 +287,26 @@ fn stop_recording() -> Result<PathBuf, String> {
 }
 
 pub fn is_recording() -> bool {
-    RECORDING
-        .lock()
-        .ok()
-        .map(|guard| guard.is_some())
-        .unwrap_or(false)
+    let Ok(mut slot) = RECORDING.lock() else {
+        return false;
+    };
+    let running = slot
+        .as_mut()
+        .map(|active| child_is_running(&mut active.child))
+        .unwrap_or(false);
+    if slot.is_some() && !running {
+        *slot = None;
+    }
+    running
+}
+
+pub fn finalize_recording_on_quit() {
+    if is_recording() {
+        match stop_recording() {
+            Ok(path) => info!("Recording finalized on quit: {}", path.display()),
+            Err(error) => warn!("Recording finalize on quit failed: {error}"),
+        }
+    }
 }
 
 pub fn toggle_recording() {
@@ -274,5 +364,36 @@ mod tests {
         let name = recording_filename(UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000));
         assert!(name.starts_with("Forge_"));
         assert!(name.ends_with(".mp4"));
+    }
+
+    #[test]
+    fn missing_or_tiny_recording_is_not_reported_saved() {
+        let path = std::env::temp_dir().join("forge-missing-recording.mp4");
+        let _ = fs::remove_file(&path);
+        assert!(recording_output_is_valid(&path, true).is_err());
+        fs::write(&path, [0u8; 8]).unwrap();
+        assert!(recording_output_is_valid(&path, true).is_err());
+        fs::write(&path, [0u8; 64]).unwrap();
+        assert!(recording_output_is_valid(&path, false).is_err());
+        assert!(recording_output_is_valid(&path, true).is_ok());
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rapid_recordings_do_not_reuse_names() {
+        let dir = std::env::temp_dir().join(format!(
+            "forge-rec-{}",
+            crate::features::json_store::unique_stamp()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let now = UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        let mut paths = std::collections::HashSet::new();
+        for index in 0..8 {
+            let path = unique_recording_path(&dir, now);
+            assert!(paths.insert(path.clone()));
+            fs::write(&path, [index as u8]).unwrap();
+        }
+        assert_eq!(paths.len(), 8);
+        let _ = fs::remove_dir_all(dir);
     }
 }
