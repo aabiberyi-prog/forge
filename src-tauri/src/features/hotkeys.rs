@@ -1,6 +1,8 @@
 use crate::config::get;
 use crate::hotkey::register_shortcut;
+use crate::APP;
 use serde::Serialize;
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,7 +138,19 @@ pub fn register_implemented() -> Vec<HotkeyStatus> {
 
 #[tauri::command]
 pub fn list_hotkey_registry() -> Vec<HotkeyStatus> {
-    planned_bindings()
+    let mut items = planned_bindings();
+    if let Some(app) = APP.get() {
+        for item in items
+            .iter_mut()
+            .filter(|item| item.implemented && !item.shortcut.is_empty())
+        {
+            item.registered = app.global_shortcut().is_registered(item.shortcut.as_str());
+            if item.registered {
+                item.error = None;
+            }
+        }
+    }
+    items
 }
 
 #[cfg(test)]

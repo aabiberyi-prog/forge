@@ -20,8 +20,7 @@ pub fn open(app: &AppHandle) -> Result<Connection, String> {
     Ok(conn)
 }
 
-pub fn init_schema(app: &AppHandle) -> Result<(), String> {
-    let conn = open(app)?;
+pub fn init_schema_on(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS history(
@@ -78,6 +77,11 @@ pub fn init_schema(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+pub fn init_schema(app: &AppHandle) -> Result<(), String> {
+    let conn = open(app)?;
+    init_schema_on(&conn)
+}
+
 pub fn meta_get(conn: &Connection, key: &str) -> Result<Option<String>, String> {
     let mut stmt = conn
         .prepare("SELECT value FROM meta WHERE key = ?1")
@@ -98,4 +102,33 @@ pub fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<(), String>
     )
     .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_creates_tasks_clips_and_history() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema_on(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO tasks(id, title, done, order_index, created_at, updated_at) VALUES('t1','x',0,0,'0','0')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clips(id, title, text, order_index, created_at, updated_at) VALUES('c1','y','z',0,'0','0')",
+            [],
+        )
+        .unwrap();
+        let tasks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
+            .unwrap();
+        let clips: i64 = conn
+            .query_row("SELECT COUNT(*) FROM clips", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(tasks, 1);
+        assert_eq!(clips, 1);
+    }
 }

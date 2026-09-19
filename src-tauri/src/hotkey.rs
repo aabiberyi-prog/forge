@@ -24,6 +24,10 @@ where
     };
 
     if !hotkey.is_empty() {
+        if let Some(error) = conflict_reason(name, &hotkey) {
+            warn!("Hotkey {hotkey} for {name} rejected: {error}");
+            return Err(error);
+        }
         match app_handle
             .global_shortcut()
             .on_shortcut(hotkey.as_str(), move |_, _, event| {
@@ -41,6 +45,42 @@ where
         };
     }
     Ok(())
+}
+
+const CONFIGURED_HOTKEY_IDS: [&str; 4] = [
+    "hotkey_selection_translate",
+    "hotkey_input_translate",
+    "hotkey_ocr_recognize",
+    "hotkey_ocr_translate",
+];
+
+pub(crate) fn reserved_shortcut(shortcut: &str) -> Option<&'static str> {
+    match shortcut.to_ascii_lowercase().as_str() {
+        "alt+1" => Some("Capture region (Phase 4)"),
+        "alt+2" => Some("Scrolling capture (Phase 6)"),
+        "alt+3" => Some("Pin to screen (Phase 4)"),
+        "alt+4" => Some("Screen recording (Phase 5)"),
+        "alt+5" => Some("OCR recognise (Phase 4)"),
+        _ => None,
+    }
+}
+
+fn conflict_reason(name: &str, shortcut: &str) -> Option<String> {
+    if let Some(why) = reserved_shortcut(shortcut) {
+        return Some(format!("{shortcut} is reserved for {why}"));
+    }
+    for id in CONFIGURED_HOTKEY_IDS {
+        if id == name {
+            continue;
+        }
+        let other = get(id)
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .unwrap_or_default();
+        if !other.is_empty() && other.eq_ignore_ascii_case(shortcut) {
+            return Some(format!("conflicts with {id} ({other})"));
+        }
+    }
+    None
 }
 
 // Register global shortcuts
@@ -99,4 +139,17 @@ pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), S
         _ => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sharex_defaults_are_reserved() {
+        assert!(reserved_shortcut("Alt+1").unwrap().contains("Phase 4"));
+        assert!(reserved_shortcut("alt+2").unwrap().contains("Phase 6"));
+        assert!(reserved_shortcut("Alt+Q").is_none());
+        assert!(reserved_shortcut("Alt+W").is_none());
+    }
 }

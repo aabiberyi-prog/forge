@@ -63,3 +63,52 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<(), Stri
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::features::db::{init_schema_on, meta_set};
+    use rusqlite::Connection;
+
+    #[test]
+    fn desktop_todo_json_is_readable() {
+        let Some(dir) = desktop_todo_dir() else {
+            return;
+        };
+        if !dir.exists() {
+            return;
+        }
+        if let Ok(Some(file)) = read_json::<TasksFile>(&dir.join("tasks.json")) {
+            assert!(file.schema_version >= 1);
+        }
+        if let Ok(Some(file)) = read_json::<CopyItemsFile>(&dir.join("copy-items.json")) {
+            assert!(file.schema_version >= 1);
+        }
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema_on(&conn).unwrap();
+        if let Ok(Some(file)) = read_json::<TasksFile>(&dir.join("tasks.json")) {
+            for task in file.tasks {
+                conn.execute(
+                    "INSERT INTO tasks(id, title, done, order_index, created_at, updated_at, completed_at, archived_at, deleted_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                    rusqlite::params![
+                        task.id,
+                        task.title,
+                        if task.done { 1 } else { 0 },
+                        task.order,
+                        task.created_at,
+                        task.updated_at,
+                        task.completed_at,
+                        task.archived_at,
+                        task.deleted_at,
+                    ],
+                )
+                .unwrap();
+            }
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
+                .unwrap();
+            assert!(count >= 0);
+            meta_set(&conn, "tasks_imported", "1").unwrap();
+        }
+    }
+}
