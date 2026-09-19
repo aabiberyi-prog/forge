@@ -283,6 +283,9 @@ Default bindings preserve existing muscle memory exactly:
 
 ### Phase 4 — Capture and annotation · 3–4 weeks
 
+Implementation and automated checks are complete on `phase-4/capture`.
+See [the Phase 4 execution record](PHASE-4-CAPTURE.md). Phase 5 has not started.
+
 - Extend Pot's existing screenshot overlay with an annotation layer
 - **Annotation MVP — 10 tools, not ShareX's 20:** rectangle, ellipse, arrow,
   line, freehand, text, step counter, blur/pixelate, highlight, crop
