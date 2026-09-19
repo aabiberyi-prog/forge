@@ -29,13 +29,13 @@ fn configured(name: &str, fallback: &str) -> String {
 pub fn planned_bindings() -> Vec<HotkeyStatus> {
     vec![
         HotkeyStatus {
-            id: "capture_region".into(),
+            id: "hotkey_capture_region".into(),
             action: "Capture region".into(),
-            shortcut: "Alt+1".into(),
+            shortcut: configured("hotkey_capture_region", "Alt+1"),
             source: "ShareX".into(),
-            implemented: false,
+            implemented: true,
             registered: false,
-            error: Some("Phase 4".into()),
+            error: None,
         },
         HotkeyStatus {
             id: "scrolling_capture".into(),
@@ -47,13 +47,13 @@ pub fn planned_bindings() -> Vec<HotkeyStatus> {
             error: Some("Phase 6".into()),
         },
         HotkeyStatus {
-            id: "pin_to_screen".into(),
+            id: "hotkey_pin_to_screen".into(),
             action: "Pin to screen".into(),
-            shortcut: "Alt+3".into(),
+            shortcut: configured("hotkey_pin_to_screen", "Alt+3"),
             source: "ShareX".into(),
-            implemented: false,
+            implemented: true,
             registered: false,
-            error: Some("Phase 4".into()),
+            error: None,
         },
         HotkeyStatus {
             id: "screen_recording".into(),
@@ -65,13 +65,13 @@ pub fn planned_bindings() -> Vec<HotkeyStatus> {
             error: Some("Phase 5".into()),
         },
         HotkeyStatus {
-            id: "ocr_recognise".into(),
+            id: "hotkey_ocr_recognize".into(),
             action: "OCR recognise".into(),
-            shortcut: "Alt+5".into(),
+            shortcut: configured("hotkey_ocr_recognize", "Alt+5"),
             source: "ShareX".into(),
-            implemented: false,
+            implemented: true,
             registered: false,
-            error: Some("Phase 4".into()),
+            error: None,
         },
         HotkeyStatus {
             id: "hotkey_ocr_translate".into(),
@@ -178,9 +178,16 @@ mod tests {
     #[test]
     fn sharex_defaults_are_not_registered_yet() {
         let bindings = planned_bindings();
-        for item in bindings.iter().filter(|item| item.source == "ShareX") {
+        for item in bindings.iter().filter(|item| {
+            item.shortcut == "Alt+2" || item.shortcut == "Alt+4"
+        }) {
             assert!(!item.implemented);
             assert!(!item.registered);
         }
+        let capture = bindings
+            .iter()
+            .find(|item| item.id == "hotkey_capture_region")
+            .unwrap();
+        assert!(capture.implemented);
     }
 }

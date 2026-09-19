@@ -50,6 +50,8 @@ export default function Hotkey() {
     const [inputTranslate, setInputTranslate] = useConfig('hotkey_input_translate', '');
     const [ocrRecognize, setOcrRecognize] = useConfig('hotkey_ocr_recognize', '');
     const [ocrTranslate, setOcrTranslate] = useConfig('hotkey_ocr_translate', '');
+    const [captureRegion, setCaptureRegion] = useConfig('hotkey_capture_region', 'Alt+1');
+    const [pinToScreen, setPinToScreen] = useConfig('hotkey_pin_to_screen', 'Alt+3');
 
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
@@ -240,6 +242,68 @@ export default function Hotkey() {
                                     className={`${ocrTranslate === '' && 'hidden'}`}
                                     onPress={() => {
                                         registerHandler('hotkey_ocr_translate', ocrTranslate);
+                                    }}
+                                >
+                                    {t('common.ok')}
+                                </Button>
+                            }
+                        />
+                    )}
+                </div>
+                <div className='config-item'>
+                    <h3 className='my-auto'>{t('config.hotkey.capture_region')}</h3>
+                    {captureRegion !== null && (
+                        <Input
+                            type='hotkey'
+                            variant='bordered'
+                            value={captureRegion}
+                            label={t('config.hotkey.set_hotkey')}
+                            className='max-w-[50%]'
+                            onKeyDown={(e) => {
+                                keyDown(e, setCaptureRegion);
+                            }}
+                            onFocus={() => {
+                                unregister(captureRegion);
+                                setCaptureRegion('');
+                            }}
+                            endContent={
+                                <Button
+                                    size='sm'
+                                    variant='flat'
+                                    className={`${captureRegion === '' && 'hidden'}`}
+                                    onPress={() => {
+                                        registerHandler('hotkey_capture_region', captureRegion);
+                                    }}
+                                >
+                                    {t('common.ok')}
+                                </Button>
+                            }
+                        />
+                    )}
+                </div>
+                <div className='config-item'>
+                    <h3 className='my-auto'>{t('config.hotkey.pin_to_screen')}</h3>
+                    {pinToScreen !== null && (
+                        <Input
+                            type='hotkey'
+                            variant='bordered'
+                            value={pinToScreen}
+                            label={t('config.hotkey.set_hotkey')}
+                            className='max-w-[50%]'
+                            onKeyDown={(e) => {
+                                keyDown(e, setPinToScreen);
+                            }}
+                            onFocus={() => {
+                                unregister(pinToScreen);
+                                setPinToScreen('');
+                            }}
+                            endContent={
+                                <Button
+                                    size='sm'
+                                    variant='flat'
+                                    className={`${pinToScreen === '' && 'hidden'}`}
+                                    onPress={() => {
+                                        registerHandler('hotkey_pin_to_screen', pinToScreen);
                                     }}
                                 >
                                     {t('common.ok')}

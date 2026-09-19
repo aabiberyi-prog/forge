@@ -155,6 +155,8 @@
                 "input_translate": "Text Translation",
                 "ocr_recognize": "Text Recognition",
                 "ocr_translate": "Screenshot Translation",
+                "capture_region": "Capture region",
+                "pin_to_screen": "Pin to screen",
                 "is_register": "The hotkey is already registered",
                 "success": "Hotkey register success",
                 "set_hotkey": "Press to Set Hotkey"

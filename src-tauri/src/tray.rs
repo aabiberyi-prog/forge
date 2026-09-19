@@ -1,7 +1,8 @@
 use crate::clipboard::*;
 use crate::config::{get, set};
 use crate::window::{
-    config_window, input_translate, ocr_recognize, ocr_translate, panel_window, updater_window,
+    capture_region, config_window, input_translate, ocr_recognize, ocr_translate, panel_window,
+    pin_capture, updater_window,
 };
 use log::info;
 use tauri::menu::{CheckMenuItem, Menu, MenuBuilder, MenuEvent, SubmenuBuilder};
@@ -122,6 +123,8 @@ fn build_menu(
         .separator()
         .text("config", text("config"))
         .text("panel", text("panel"))
+        .text("capture", text("capture"))
+        .text("pin", text("pin"))
         .text("check_update", text("check_update"))
         .text("view_log", text("view_log"))
         .separator()
@@ -137,6 +140,8 @@ fn handle_menu(app: &AppHandle, event: MenuEvent) {
         "ocr_translate" => ocr_translate(),
         "config" => config_window(),
         "panel" => panel_window(),
+        "capture" => capture_region(),
+        "pin" => pin_capture(),
         "check_update" => updater_window(),
         "clipboard_monitor" => {
             let enabled = !get("clipboard_monitor")
@@ -207,6 +212,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "OCR Translate"),
             ("config", "Config"),
             ("panel", "Tasks"),
+            ("capture", "Capture"),
+            ("pin", "Pin"),
             ("check_update", "Check Update"),
             ("view_log", "View Log"),
             ("restart", "Restart"),
@@ -224,6 +231,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "截图翻译"),
             ("config", "偏好设置"),
             ("panel", "任务"),
+            ("capture", "截图"),
+            ("pin", "钉住"),
             ("check_update", "检查更新"),
             ("restart", "重启应用"),
             ("view_log", "查看日志"),
@@ -241,6 +250,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "截圖翻譯"),
             ("config", "偏好設定"),
             ("panel", "任務"),
+            ("capture", "截圖"),
+            ("pin", "釘選"),
             ("check_update", "檢查更新"),
             ("restart", "重啓程式"),
             ("view_log", "查看日誌"),
@@ -258,6 +269,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "スクリーンショットの翻訳"),
             ("config", "プリファレンス設定"),
             ("panel", "タスク"),
+            ("capture", "キャプチャ"),
+            ("pin", "ピン"),
             ("check_update", "更新を確認する"),
             ("restart", "アプリの再起動"),
             ("view_log", "ログを見る"),
@@ -275,6 +288,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "스크린샷 번역"),
             ("config", "기본 설정"),
             ("panel", "작업"),
+            ("capture", "캡처"),
+            ("pin", "고정"),
             ("check_update", "업데이트 확인"),
             ("restart", "응용 프로그램 다시 시작"),
             ("view_log", "로그 보기"),
@@ -292,6 +307,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "Traduction d'image"),
             ("config", "Paramètres"),
             ("panel", "Tâches"),
+            ("capture", "Capture"),
+            ("pin", "Épingler"),
             ("check_update", "Vérifier les mises à jour"),
             ("restart", "Redémarrer l'application"),
             ("view_log", "Voir le journal"),
@@ -309,6 +326,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "Bildübersetzung"),
             ("config", "Einstellungen"),
             ("panel", "Aufgaben"),
+            ("capture", "Aufnahme"),
+            ("pin", "Anheften"),
             ("check_update", "Auf Updates prüfen"),
             ("restart", "Anwendung neu starten"),
             ("view_log", "Protokoll anzeigen"),
@@ -326,6 +345,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "Перевод изображения"),
             ("config", "Настройки"),
             ("panel", "Задачи"),
+            ("capture", "Снимок"),
+            ("pin", "Закрепить"),
             ("check_update", "Проверить обновления"),
             ("restart", "Перезапустить приложение"),
             ("view_log", "Просмотр журнала"),
@@ -343,6 +364,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "ترجمه عکس"),
             ("config", "تنظیمات ترجیح"),
             ("panel", "وظایف"),
+            ("capture", "Capture"),
+            ("pin", "Pin"),
             ("check_update", "بررسی بروزرسانی"),
             ("restart", "راه‌اندازی مجدد برنامه"),
             ("view_log", "مشاهده گزارشات"),
@@ -360,6 +383,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "Tradução de Imagem"),
             ("config", "Configurações"),
             ("panel", "Tarefas"),
+            ("capture", "Captura"),
+            ("pin", "Fixar"),
             ("check_update", "Checar por Atualização"),
             ("restart", "Reiniciar aplicativo"),
             ("view_log", "Exibir Registro"),
@@ -377,6 +402,8 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("ocr_translate", "Переклад зображення"),
             ("config", "Настройка"),
             ("panel", "Завдання"),
+            ("capture", "Знімок"),
+            ("pin", "Закріпити"),
             ("check_update", "Перевірити оновлення"),
             ("restart", "Перезапустити додаток"),
             ("view_log", "Перегляд журналу"),
