@@ -15,7 +15,9 @@ This is the packaging identity for the 2026-09-19 selected-scope repair stack. I
 | Setup SHA256 | `B18AC348D615A08A5B3147558C9E248F7E261270274CCFCA5987097DF1F6FBF6` (36,702,800 bytes) |
 | Isolated install | `%TEMP%\Forge-candidate-db7926625` (NSIS `/S` exit 0) |
 | Isolated exe SHA256 | `81EF17EB65EE9D29F42EB8805327741596E0C76722C89B44089C0BFD62581C3A` (64,788,480 bytes; Tauri patches the NSIS payload) |
-| Signed updater of this SHA | **not produced** (public key present, `TAURI_SIGNING_PRIVATE_KEY` unset) |
+| Signed updater of this SHA | Local `.sig` written; **not published** to the updater GitHub tag |
+| Updater zip SHA256 | `B73C2E013705160C5306A318D8613DFB2EF8748E485417C2DB9C54E18CBD97A4` (35,115,946 bytes) |
+| Updater `.sig` SHA256 | `90DD59BF15B7354CC2E004CDAF8BEBEB0EBCB5F774A65373F6C40C122DA27009` (428 bytes) |
 
 Do not treat the previously installed 3.0.8 at `D:\Pot Forge` (`8ccd8f845`, exe SHA256 `6D974AAE…38856BF3`) as this candidate. That live exe hash was unchanged after the isolated TEMP install.
 
