@@ -230,6 +230,7 @@ fn main() {
             hide_panel_window,
             get_capture_mode,
             finish_capture,
+            retry_capture_copy,
             recording_status,
             toggle_screen_recording,
             scrolling_capture,

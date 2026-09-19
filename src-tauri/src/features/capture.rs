@@ -3,11 +3,22 @@ use crate::features::db;
 use crate::APP;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use rusqlite::params;
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureFinishResult {
+    pub path: Option<String>,
+    pub saved: bool,
+    pub copied: bool,
+    pub pinned: bool,
+    pub error: Option<String>,
+}
 
 static CAPTURE_MODE: Mutex<String> = Mutex::new(String::new());
 
@@ -47,7 +58,31 @@ pub fn capture_filename(now: SystemTime) -> String {
     let hour = rem / 3600;
     let minute = (rem % 3600) / 60;
     let second = rem % 60;
-    format!("Forge_{year:04}-{month:02}-{day:02}_{hour:02}{minute:02}{second:02}.png")
+    let millis = now
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.subsec_millis())
+        .unwrap_or(0);
+    format!("Forge_{year:04}-{month:02}-{day:02}_{hour:02}{minute:02}{second:02}_{millis:03}.png")
+}
+
+pub fn unique_save_path(dir: &Path, now: SystemTime) -> PathBuf {
+    let name = capture_filename(now);
+    let candidate = dir.join(&name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let stem = Path::new(&name)
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Forge".into());
+    let mut index = 2u32;
+    loop {
+        let path = dir.join(format!("{stem}-{index}.png"));
+        if !path.exists() {
+            return path;
+        }
+        index += 1;
+    }
 }
 
 fn civil_from_days(z: i32) -> (i32, u32, u32) {
@@ -121,7 +156,7 @@ pub(crate) fn record_capture_history(app: &AppHandle, path: &Path, kind: &str) -
 }
 
 #[tauri::command]
-pub fn finish_capture(png_base64: String, pin: bool) -> Result<String, String> {
+pub fn finish_capture(png_base64: String, pin: bool) -> Result<CaptureFinishResult, String> {
     let app = APP.get().ok_or("app handle is not ready")?;
     let bytes = decode_png_base64(&png_base64)?;
     let cut_path = cache_cut_path(app)?;
@@ -129,14 +164,64 @@ pub fn finish_capture(png_base64: String, pin: bool) -> Result<String, String> {
 
     let dir = capture_save_dir();
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    let save_path = dir.join(capture_filename(SystemTime::now()));
-    fs::write(&save_path, &bytes).map_err(|error| error.to_string())?;
-    copy_png_bytes(&bytes)?;
-    let _ = record_capture_history(app, &save_path, "region");
-    if pin {
-        crate::window::pin_window();
+    let save_path = unique_save_path(&dir, SystemTime::now());
+    if let Err(error) = fs::write(&save_path, &bytes) {
+        return Ok(CaptureFinishResult {
+            path: None,
+            saved: false,
+            copied: false,
+            pinned: false,
+            error: Some(format!("save: {error}")),
+        });
     }
-    Ok(save_path.to_string_lossy().to_string())
+    let _ = record_capture_history(app, &save_path, "region");
+    match copy_png_bytes(&bytes) {
+        Ok(()) => {
+            if pin {
+                crate::window::pin_window();
+            }
+            Ok(CaptureFinishResult {
+                path: Some(save_path.to_string_lossy().to_string()),
+                saved: true,
+                copied: true,
+                pinned: pin,
+                error: None,
+            })
+        }
+        Err(error) => Ok(CaptureFinishResult {
+            path: Some(save_path.to_string_lossy().to_string()),
+            saved: true,
+            copied: false,
+            pinned: false,
+            error: Some(format!("copy: {error}")),
+        }),
+    }
+}
+
+#[tauri::command]
+pub fn retry_capture_copy(path: String, pin: bool) -> Result<CaptureFinishResult, String> {
+    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+    match copy_png_bytes(&bytes) {
+        Ok(()) => {
+            if pin {
+                crate::window::pin_window();
+            }
+            Ok(CaptureFinishResult {
+                path: Some(path),
+                saved: true,
+                copied: true,
+                pinned: pin,
+                error: None,
+            })
+        }
+        Err(error) => Ok(CaptureFinishResult {
+            path: Some(path),
+            saved: true,
+            copied: false,
+            pinned: false,
+            error: Some(format!("copy: {error}")),
+        }),
+    }
 }
 
 pub fn ensure_capture_hotkey_defaults() {
@@ -189,5 +274,26 @@ mod tests {
             default_capture_dir(),
             PathBuf::from(r"D:\ShareX\Screenshots")
         );
+    }
+
+    #[test]
+    fn twenty_rapid_saves_do_not_overwrite() {
+        let dir = std::env::temp_dir().join(format!(
+            "forge-rapid-save-{}",
+            crate::features::json_store::unique_stamp()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let now = UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        let mut paths = std::collections::HashSet::new();
+        for index in 0..20 {
+            let path = unique_save_path(&dir, now);
+            assert!(paths.insert(path.clone()), "duplicate path {path:?}");
+            fs::write(&path, [index as u8]).unwrap();
+        }
+        assert_eq!(paths.len(), 20);
+        for path in &paths {
+            assert!(path.exists());
+        }
+        let _ = fs::remove_dir_all(dir);
     }
 }
