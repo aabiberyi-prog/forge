@@ -37,6 +37,7 @@ import { sourceLanguageAtom, targetLanguageAtom } from '../LanguageArea';
 import { useConfig, useToastStyle, useVoice } from '../../../../hooks';
 import { sourceTextAtom, detectLanguageAtom } from '../SourceArea';
 import { invoke_plugin } from '../../../../utils/invoke_plugin';
+import { hydrateSecrets } from '../../../../utils/secret';
 import * as builtinServices from '../../../../services/translate';
 import * as builtinTtsServices from '../../../../services/tts';
 
@@ -195,10 +196,10 @@ export default function TargetArea(props) {
                 }
                 setIsLoading(true);
                 setHide(true);
-                const instanceConfig = {
+                const instanceConfig = await hydrateSecrets(currentTranslateServiceInstanceKey, {
                     ...(serviceInstanceConfigMap[currentTranslateServiceInstanceKey] ?? {}),
                     enable: 'true',
-                };
+                });
                 const setHideOnce = invokeOnce(setHide);
                 let [func, utils] = await invoke_plugin('translate', translateServiceName);
                 func(sourceText.trim(), pluginInfo.language[sourceLanguage], pluginInfo.language[newTargetLanguage], {
@@ -282,7 +283,10 @@ export default function TargetArea(props) {
                 }
                 setIsLoading(true);
                 setHide(true);
-                const instanceConfig = serviceInstanceConfigMap[currentTranslateServiceInstanceKey];
+                const instanceConfig = await hydrateSecrets(
+                    currentTranslateServiceInstanceKey,
+                    serviceInstanceConfigMap[currentTranslateServiceInstanceKey]
+                );
                 const setHideOnce = invokeOnce(setHide);
                 builtinServices[translateServiceName]
                     .translate(sourceText.trim(), LanguageEnum[sourceLanguage], LanguageEnum[newTargetLanguage], {

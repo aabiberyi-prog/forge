@@ -1,10 +1,11 @@
 import { INSTANCE_NAME_CONFIG_KEY } from '../../../utils/service_instance';
+import { persistApiKey, resolveApiKey } from '../../../utils/secret';
 import { Input, Button, Switch, Textarea } from '@nextui-org/react';
 import { MdDeleteOutline } from 'react-icons/md';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-shell';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useConfig } from '../../../hooks/useConfig';
 import { useToastStyle } from '../../../hooks';
@@ -67,6 +68,17 @@ export function Config(props) {
         { sync: false }
     );
     const [isLoading, setIsLoading] = useState(false);
+    const [secretLoaded, setSecretLoaded] = useState(false);
+
+    useEffect(() => {
+        if (!serviceConfig || secretLoaded) return;
+        resolveApiKey(instanceKey, serviceConfig).then((apiKey) => {
+            if (apiKey && apiKey !== serviceConfig.apiKey) {
+                setServiceConfig({ ...serviceConfig, apiKey }, false);
+            }
+            setSecretLoaded(true);
+        });
+    }, [serviceConfig, instanceKey, secretLoaded]);
 
     const toastStyle = useToastStyle();
 
@@ -77,9 +89,10 @@ export function Config(props) {
                     e.preventDefault();
                     setIsLoading(true);
                     translate('hello', Language.auto, Language.zh_cn, { config: serviceConfig }).then(
-                        () => {
+                        async () => {
                             setIsLoading(false);
-                            setServiceConfig(serviceConfig, true);
+                            await persistApiKey(instanceKey, serviceConfig.apiKey);
+                            setServiceConfig({ ...serviceConfig, apiKey: '' }, true);
                             updateServiceList(instanceKey);
                             onClose();
                         },

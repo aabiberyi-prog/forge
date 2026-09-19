@@ -7,13 +7,14 @@ import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { Dropdown } from '@nextui-org/react';
 import { open } from '@tauri-apps/plugin-shell';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useConfig } from '../../../hooks/useConfig';
 import { useToastStyle } from '../../../hooks';
 import { translate } from './index';
 import { Language } from './index';
 import { INSTANCE_NAME_CONFIG_KEY } from '../../../utils/service_instance';
+import { persistApiKey, resolveApiKey } from '../../../utils/secret';
 
 export const defaultRequestArguments = JSON.stringify({
     temperature: 0.1,
@@ -70,8 +71,19 @@ export function Config(props) {
     }
 
     const [isLoading, setIsLoading] = useState(false);
+    const [secretLoaded, setSecretLoaded] = useState(false);
 
     const toastStyle = useToastStyle();
+
+    useEffect(() => {
+        if (!openaiConfig || secretLoaded) return;
+        resolveApiKey(instanceKey, openaiConfig).then((apiKey) => {
+            if (apiKey && apiKey !== openaiConfig.apiKey) {
+                setOpenaiConfig({ ...openaiConfig, apiKey }, false);
+            }
+            setSecretLoaded(true);
+        });
+    }, [openaiConfig, instanceKey, secretLoaded]);
 
     return (
         openaiConfig !== null && (
@@ -80,9 +92,10 @@ export function Config(props) {
                     e.preventDefault();
                     setIsLoading(true);
                     translate('hello', Language.auto, Language.zh_cn, { config: openaiConfig }).then(
-                        () => {
+                        async () => {
                             setIsLoading(false);
-                            setOpenaiConfig(openaiConfig, true);
+                            await persistApiKey(instanceKey, openaiConfig.apiKey);
+                            setOpenaiConfig({ ...openaiConfig, apiKey: '' }, true);
                             updateServiceList(instanceKey);
                             onClose();
                         },
