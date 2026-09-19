@@ -305,6 +305,9 @@ Implementation is complete on `phase-5/recording`. See
 
 ### Phase 6 — Scrolling capture · 1–3 weeks · ⚠ highest risk
 
+Implementation is complete on `phase-6/scrolling-capture`. See
+[the Phase 6 execution record](PHASE-6-SCROLLING.md). Phase 7 has not started.
+
 - `SendInput` wheel events into the target window, frame capture,
   phase-correlation stitching
 - **Windows-only.** macOS TCC does not permit driving a foreign app's scroll;
