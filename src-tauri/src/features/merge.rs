@@ -115,7 +115,7 @@ fn load_existing_clips(conn: &Connection) -> Result<HashMap<String, CopyItem>, S
     let mut map = HashMap::new();
     for (id, title, text, order, created_at, updated_at) in clip_rows {
         let mut img_stmt = conn
-            .prepare("SELECT id, file_name, mime_type, relative_path, size_bytes, created_at FROM clip_images WHERE clip_id = ?1 ORDER BY id")
+            .prepare("SELECT id, file_name, mime_type, relative_path, size_bytes, created_at FROM clip_images WHERE clip_id = ?1 ORDER BY order_index, id")
             .map_err(|error| error.to_string())?;
         let images = img_stmt
             .query_map(params![id], |image| {
@@ -180,9 +180,9 @@ fn insert_clip(conn: &Connection, item: &CopyItem) -> Result<(), String> {
         ],
     )
     .map_err(|error| error.to_string())?;
-    for image in &item.images {
+    for (order, image) in item.images.iter().enumerate() {
         conn.execute(
-            "INSERT INTO clip_images(id, clip_id, file_name, mime_type, relative_path, size_bytes, created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            "INSERT INTO clip_images(id, clip_id, file_name, mime_type, relative_path, size_bytes, created_at, order_index) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
             params![
                 image.id,
                 item.id,
@@ -191,6 +191,7 @@ fn insert_clip(conn: &Connection, item: &CopyItem) -> Result<(), String> {
                 image.relative_path,
                 image.size_bytes,
                 image.created_at,
+                order as i32,
             ],
         )
         .map_err(|error| error.to_string())?;

@@ -80,9 +80,41 @@ pub fn init_schema_on(conn: &Connection) -> Result<(), String> {
             report_json TEXT NOT NULL,
             snapshot_path TEXT
         );
+        CREATE TABLE IF NOT EXISTS task_events(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
+            event TEXT NOT NULL,
+            at TEXT NOT NULL
+        );
         "#,
     )
     .map_err(|error| error.to_string())?;
+    migrate_schema(conn)
+}
+
+fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+    let mut columns = Vec::new();
+    for row in rows {
+        columns.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(columns)
+}
+
+fn migrate_schema(conn: &Connection) -> Result<(), String> {
+    let columns = table_columns(conn, "clip_images")?;
+    if !columns.iter().any(|column| column == "order_index") {
+        conn.execute(
+            "ALTER TABLE clip_images ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
@@ -148,5 +180,23 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM import_ledger", [], |row| row.get(0))
             .unwrap();
         assert_eq!(ledger, 1);
+        conn.execute(
+            "INSERT INTO task_events(task_id, event, at) VALUES('t1','restored','1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clip_images(id, clip_id, file_name, mime_type, relative_path, size_bytes, created_at, order_index) VALUES('i1','c1','a.png','image/png','copy-assets/a.png',1,'0',0)",
+            [],
+        )
+        .unwrap();
+        let order: i64 = conn
+            .query_row(
+                "SELECT order_index FROM clip_images WHERE id='i1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(order, 0);
     }
 }

@@ -237,6 +237,31 @@
                 "discussion": "Github 讨论"
             }
         },
+        "panel": {
+            "loading": "加载中…",
+            "load_failed": "无法加载任务",
+            "retry": "重试",
+            "search_placeholder": "搜索历史",
+            "status_completed": "已完成",
+            "status_archived": "已清除",
+            "status_deleted": "已删除",
+            "status_record": "记录",
+            "reset_filters": "重置",
+            "from_date": "开始日期",
+            "to_date": "结束日期",
+            "history_count": "{{count}} 条匹配",
+            "history_empty": "暂无历史记录",
+            "restore": "恢复",
+            "prev": "上一页",
+            "next": "下一页",
+            "copied_files": "已复制文件",
+            "copied_image": "已复制图片",
+            "copied_text": "已复制为文本",
+            "copy_failed": "复制失败",
+            "image_new": "新",
+            "image_saved": "已存",
+            "remove_image": "移除"
+        },
         "updater": {
             "title": "检查更新",
             "latest": "## 已经是最新版本",

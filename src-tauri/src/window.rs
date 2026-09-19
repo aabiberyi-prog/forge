@@ -144,9 +144,12 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
 }
 
 pub fn panel_window() {
-    let (window, _exists) = build_window("panel", "Tasks");
+    let (window, exists) = build_window("panel", "Tasks");
     let _ = window.set_skip_taskbar(true);
-    let _ = crate::features::panel::restore_panel_window(&window);
+    if !exists {
+        let _ = crate::features::panel::restore_panel_window(&window);
+        crate::features::panel::attach_panel_lifecycle(&window);
+    }
     let _ = window.show();
 }
 

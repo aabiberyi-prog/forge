@@ -1,9 +1,11 @@
-import { Slider, Tab, Tabs } from '@nextui-org/react';
+import { Button, Input, Slider, Tab, Tabs } from '@nextui-org/react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Image as TauriImage } from '@tauri-apps/api/image';
+import { listen } from '@tauri-apps/api/event';
 import { writeHtml, writeImage, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import CopyItemEditor from './components/CopyItemEditor';
 import CopyList from './components/CopyList';
 import HistoryList from './components/HistoryList';
@@ -12,6 +14,7 @@ import TodoInput from './components/TodoInput';
 import TodoList from './components/TodoList';
 import TodoStats from './components/TodoStats';
 import { sortByOrder } from './copy';
+import { filterHistory, paginate, statusCounts } from './history';
 import './style.css';
 
 const appWindow = getCurrentWebviewWindow();
@@ -80,6 +83,7 @@ async function writeNativeImage(dataUrl) {
 }
 
 export default function Panel() {
+    const { t } = useTranslation();
     const [todos, setTodos] = useState([]);
     const [history, setHistory] = useState([]);
     const [copyItems, setCopyItems] = useState([]);
@@ -88,31 +92,61 @@ export default function Panel() {
     const [copyEditorOpen, setCopyEditorOpen] = useState(false);
     const [editingCopyItem, setEditingCopyItem] = useState(null);
     const [notice, setNotice] = useState('');
+    const [noticeKind, setNoticeKind] = useState('ok');
     const [hovering, setHovering] = useState(false);
+    const [loadState, setLoadState] = useState('loading');
+    const [loadError, setLoadError] = useState('');
+    const [actionError, setActionError] = useState('');
+    const [historyQuery, setHistoryQuery] = useState('');
+    const [historyStatuses, setHistoryStatuses] = useState([]);
+    const [historyFrom, setHistoryFrom] = useState('');
+    const [historyTo, setHistoryTo] = useState('');
+    const [historyPage, setHistoryPage] = useState(1);
     const noticeTimer = useRef(null);
 
-    const showNotice = (text) => {
+    const showNotice = (text, kind = 'ok') => {
         if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+        setNoticeKind(kind);
         setNotice(text);
-        noticeTimer.current = window.setTimeout(() => setNotice(''), 1600);
+        noticeTimer.current = window.setTimeout(() => setNotice(''), 2200);
+    };
+
+    const reload = async ({ showWindow = false } = {}) => {
+        const [settingsResult, tasksResult, historyResult, copyResult] = await Promise.allSettled([
+            invoke('get_panel_settings'),
+            invoke('list_tasks'),
+            invoke('list_history_tasks'),
+            invoke('list_copy_items'),
+        ]);
+        const failures = [settingsResult, tasksResult, historyResult, copyResult]
+            .filter((result) => result.status === 'rejected')
+            .map((result) => result.reason?.message || String(result.reason || 'load failed'));
+        if (settingsResult.status === 'fulfilled') {
+            setSettings({ ...defaultSettings, ...settingsResult.value });
+        }
+        if (tasksResult.status === 'fulfilled') setTodos(sortByOrder(tasksResult.value));
+        if (historyResult.status === 'fulfilled') setHistory(sortHistory(historyResult.value));
+        if (copyResult.status === 'fulfilled') setCopyItems(sortByOrder(copyResult.value));
+        if (failures.length > 0) {
+            setLoadState('error');
+            setLoadError(failures[0]);
+        } else {
+            setLoadState('ready');
+            setLoadError('');
+        }
+        if (showWindow) await appWindow.show();
     };
 
     useEffect(() => {
-        const bootstrap = async () => {
-            const [loadedSettings, loadedTasks, loadedHistory, loadedCopyItems] = await Promise.all([
-                invoke('get_panel_settings').catch(() => defaultSettings),
-                invoke('list_tasks').catch(() => []),
-                invoke('list_history_tasks').catch(() => []),
-                invoke('list_copy_items').catch(() => []),
-            ]);
-            setSettings({ ...defaultSettings, ...loadedSettings });
-            setTodos(sortByOrder(loadedTasks));
-            setHistory(sortHistory(loadedHistory));
-            setCopyItems(sortByOrder(loadedCopyItems));
-            await appWindow.show();
-        };
-        bootstrap();
+        reload({ showWindow: true });
+        let unlisten = () => {};
+        listen('desktop-todo-imported', () => {
+            reload();
+        }).then((fn) => {
+            unlisten = fn;
+        });
         return () => {
+            unlisten();
             if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
         };
     }, []);
@@ -130,9 +164,15 @@ export default function Panel() {
     };
 
     const handleAddTodo = async (title) => {
-        const task = await invoke('create_task', { title });
-        setTodos((current) => sortByOrder([...current, task]));
-        setView('active');
+        try {
+            const task = await invoke('create_task', { title });
+            setTodos((current) => sortByOrder([...current, task]));
+            setView('active');
+            setActionError('');
+        } catch (error) {
+            setActionError(error?.message || String(error));
+            throw error;
+        }
     };
 
     const handleToggleDone = async (id, done) => {
@@ -147,6 +187,20 @@ export default function Panel() {
     const handleEdit = async (id, title) => {
         const task = await invoke('update_task', { patch: { id, title } });
         setTodos((current) => sortByOrder(current.map((item) => (item.id === id ? task : item))));
+        setHistory((current) => {
+            if (!isHistoryTask(task)) return current.filter((item) => item.id !== task.id);
+            return sortHistory(upsertById(current, task));
+        });
+    };
+
+    const handleRestore = async (id) => {
+        const task = await invoke('restore_task', { id });
+        setTodos((current) => sortByOrder(upsertById(current.filter((item) => item.id !== task.id), task)));
+        setHistory((current) => {
+            if (!isHistoryTask(task)) return current.filter((item) => item.id !== task.id);
+            return sortHistory(upsertById(current, task));
+        });
+        setView('active');
     };
 
     const handleDelete = async (id) => {
@@ -186,17 +240,70 @@ export default function Panel() {
         if (payload.imageDataUrls?.length > 0) {
             try {
                 await invoke('copy_image_files_to_clipboard', { id });
+                showNotice(t('panel.copied_files'));
+                return;
             } catch {
                 try {
                     await writeNativeImage(payload.imageDataUrls[0]);
+                    showNotice(t('panel.copied_image'));
+                    return;
                 } catch {
-                    await writeHtmlOrText(payload);
+                    try {
+                        await writeHtmlOrText(payload);
+                        showNotice(t('panel.copied_text'), 'warn');
+                    } catch (error) {
+                        showNotice(error?.message || t('panel.copy_failed'), 'error');
+                    }
+                    return;
                 }
             }
-        } else {
-            await writeHtmlOrText(payload);
         }
-        showNotice('Copied');
+        try {
+            await writeHtmlOrText(payload);
+            showNotice(t('panel.copied_text'));
+        } catch (error) {
+            showNotice(error?.message || t('panel.copy_failed'), 'error');
+        }
+    };
+
+    const searchedHistory = useMemo(
+        () =>
+            filterHistory(history, {
+                query: historyQuery,
+                statuses: historyStatuses,
+                from: historyFrom,
+                to: historyTo,
+            }),
+        [history, historyQuery, historyStatuses, historyFrom, historyTo]
+    );
+    const counts = useMemo(
+        () =>
+            statusCounts(
+                filterHistory(history, {
+                    query: historyQuery,
+                    statuses: [],
+                    from: historyFrom,
+                    to: historyTo,
+                })
+            ),
+        [history, historyQuery, historyFrom, historyTo]
+    );
+    const historyPageView = useMemo(
+        () => paginate(searchedHistory, historyPage),
+        [searchedHistory, historyPage]
+    );
+    const resetHistoryFilters = () => {
+        setHistoryQuery('');
+        setHistoryStatuses([]);
+        setHistoryFrom('');
+        setHistoryTo('');
+        setHistoryPage(1);
+    };
+    const toggleStatus = (status) => {
+        setHistoryPage(1);
+        setHistoryStatuses((current) =>
+            current.includes(status) ? current.filter((item) => item !== status) : [...current, status]
+        );
     };
 
     return (
@@ -211,8 +318,19 @@ export default function Panel() {
                 onClose={() => invoke('hide_panel_window')}
             />
             <div className='forge-panel-body'>
-                <div className='forge-panel-notice'>{notice}</div>
-                <TodoInput onAddTodo={handleAddTodo} />
+                <div className={`forge-panel-notice ${noticeKind === 'error' ? 'is-error' : noticeKind === 'warn' ? 'is-warn' : ''}`}>
+                    {notice}
+                </div>
+                {loadState === 'loading' ? <div className='text-xs opacity-70'>{t('panel.loading')}</div> : null}
+                {loadState === 'error' ? (
+                    <div className='flex items-center gap-2'>
+                        <div className='text-danger text-xs flex-1'>{loadError || t('panel.load_failed')}</div>
+                        <Button size='sm' variant='flat' onPress={() => reload()}>
+                            {t('panel.retry')}
+                        </Button>
+                    </div>
+                ) : null}
+                <TodoInput onAddTodo={handleAddTodo} error={actionError} />
                 <div className='flex items-center gap-2 text-xs opacity-70'>
                     <span>Opacity</span>
                     <Slider
@@ -249,7 +367,90 @@ export default function Panel() {
                             onReorder={handleReorder}
                         />
                     )}
-                    {view === 'history' && <HistoryList tasks={history} />}
+                    {view === 'history' && (
+                        <div>
+                            <Input
+                                size='sm'
+                                value={historyQuery}
+                                onValueChange={(value) => {
+                                    setHistoryQuery(value);
+                                    setHistoryPage(1);
+                                }}
+                                placeholder={t('panel.search_placeholder')}
+                                className='mb-2'
+                            />
+                            <div className='flex flex-wrap gap-1 mb-2'>
+                                {['completed', 'archived', 'deleted'].map((status) => (
+                                    <Button
+                                        key={status}
+                                        size='sm'
+                                        variant={historyStatuses.includes(status) ? 'solid' : 'flat'}
+                                        onPress={() => toggleStatus(status)}
+                                    >
+                                        {t(`panel.status_${status}`)} {counts[status]}
+                                    </Button>
+                                ))}
+                                <Button size='sm' variant='light' onPress={resetHistoryFilters}>
+                                    {t('panel.reset_filters')}
+                                </Button>
+                            </div>
+                            <div className='flex gap-2 mb-2'>
+                                <Input
+                                    size='sm'
+                                    type='date'
+                                    value={historyFrom}
+                                    onValueChange={(value) => {
+                                        setHistoryFrom(value);
+                                        setHistoryPage(1);
+                                    }}
+                                    aria-label={t('panel.from_date')}
+                                />
+                                <Input
+                                    size='sm'
+                                    type='date'
+                                    value={historyTo}
+                                    onValueChange={(value) => {
+                                        setHistoryTo(value);
+                                        setHistoryPage(1);
+                                    }}
+                                    aria-label={t('panel.to_date')}
+                                />
+                            </div>
+                            <div className='text-[11px] opacity-60 mb-1'>
+                                {t('panel.history_count', { count: historyPageView.total })}
+                            </div>
+                            <HistoryList
+                                tasks={historyPageView.items}
+                                emptyLabel={
+                                    loadState === 'error' ? t('panel.load_failed') : t('panel.history_empty')
+                                }
+                                onRestore={handleRestore}
+                            />
+                            {historyPageView.pageCount > 1 ? (
+                                <div className='flex items-center justify-between mt-2 text-xs'>
+                                    <Button
+                                        size='sm'
+                                        variant='light'
+                                        isDisabled={historyPageView.page <= 1}
+                                        onPress={() => setHistoryPage((page) => page - 1)}
+                                    >
+                                        {t('panel.prev')}
+                                    </Button>
+                                    <span>
+                                        {historyPageView.page} / {historyPageView.pageCount}
+                                    </span>
+                                    <Button
+                                        size='sm'
+                                        variant='light'
+                                        isDisabled={historyPageView.page >= historyPageView.pageCount}
+                                        onPress={() => setHistoryPage((page) => page + 1)}
+                                    >
+                                        {t('panel.next')}
+                                    </Button>
+                                </div>
+                            ) : null}
+                        </div>
+                    )}
                     {view === 'copy' && (
                         <CopyList
                             items={copyItems}

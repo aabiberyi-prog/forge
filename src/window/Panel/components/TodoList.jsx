@@ -7,11 +7,20 @@ export default function TodoList({ todos, onToggleDone, onDelete, onEdit, onReor
     const [editingId, setEditingId] = useState(null);
     const [editValue, setEditValue] = useState('');
 
-    const saveEdit = (id) => {
+    const saveEdit = async (id) => {
         const title = editValue.trim();
-        if (title) onEdit(id, title);
-        setEditingId(null);
-        setEditValue('');
+        if (!title) {
+            setEditingId(null);
+            setEditValue('');
+            return;
+        }
+        try {
+            await onEdit(id, title);
+            setEditingId(null);
+            setEditValue('');
+        } catch {
+            // Keep the draft when save fails.
+        }
     };
 
     if (todos.length === 0) {

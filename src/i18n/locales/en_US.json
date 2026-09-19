@@ -237,6 +237,31 @@
                 "discussion": "Github Discussion"
             }
         },
+        "panel": {
+            "loading": "Loading…",
+            "load_failed": "Could not load tasks",
+            "retry": "Retry",
+            "search_placeholder": "Search history",
+            "status_completed": "Done",
+            "status_archived": "Cleared",
+            "status_deleted": "Deleted",
+            "status_record": "Record",
+            "reset_filters": "Reset",
+            "from_date": "From",
+            "to_date": "To",
+            "history_count": "{{count}} matching",
+            "history_empty": "No history",
+            "restore": "Restore",
+            "prev": "Prev",
+            "next": "Next",
+            "copied_files": "Copied files",
+            "copied_image": "Copied image",
+            "copied_text": "Copied as text",
+            "copy_failed": "Copy failed",
+            "image_new": "New",
+            "image_saved": "Saved",
+            "remove_image": "Remove"
+        },
         "updater": {
             "title": "Check Update",
             "latest": "## The latest version is installed",

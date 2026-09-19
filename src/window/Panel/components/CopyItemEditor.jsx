@@ -1,5 +1,6 @@
 import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Textarea } from '@nextui-org/react';
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MAX_COPY_IMAGES, validateImageFile } from '../copy';
 
 function fileToImageInput(file) {
@@ -19,6 +20,7 @@ function fileToImageInput(file) {
 }
 
 export default function CopyItemEditor({ open, item, onCancel, onSave }) {
+    const { t } = useTranslation();
     const fileInputRef = useRef(null);
     const [title, setTitle] = useState('');
     const [text, setText] = useState('');
@@ -111,6 +113,35 @@ export default function CopyItemEditor({ open, item, onCancel, onSave }) {
                     <Button size='sm' variant='flat' onPress={() => fileInputRef.current?.click()}>
                         Add images ({images.length}/{MAX_COPY_IMAGES})
                     </Button>
+                    {images.length > 0 ? (
+                        <div className='flex flex-col gap-1'>
+                            {images.map((image, index) => (
+                                <div key={`${image.id || image.fileName}-${index}`} className='forge-clip-image-row'>
+                                    {image.dataUrl ? (
+                                        <img src={image.dataUrl} alt='' className='forge-clip-thumb' />
+                                    ) : (
+                                        <span className='forge-clip-thumb forge-clip-thumb-empty' />
+                                    )}
+                                    <span className='flex-1 truncate text-xs'>{image.fileName}</span>
+                                    <span className='text-[11px] opacity-60'>
+                                        {image.dataUrl ? t('panel.image_new') : t('panel.image_saved')}
+                                    </span>
+                                    <Button
+                                        size='sm'
+                                        variant='light'
+                                        color='danger'
+                                        onPress={() =>
+                                            setImages((current) =>
+                                                current.filter((_, imageIndex) => imageIndex !== index)
+                                            )
+                                        }
+                                    >
+                                        {t('panel.remove_image')}
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
                     {error ? <div className='text-danger text-xs'>{error}</div> : null}
                 </ModalBody>
                 <ModalFooter>

@@ -57,7 +57,11 @@ export default function App() {
                     e.preventDefault();
                 }
                 if (e.key === 'Escape') {
-                    await appWindow.close();
+                    if (appWindow.label === 'panel') {
+                        await invoke('hide_panel_window');
+                    } else {
+                        await appWindow.close();
+                    }
                 }
             });
         } else {
@@ -70,7 +74,11 @@ export default function App() {
                     e.preventDefault();
                 }
                 if (e.key === 'Escape') {
-                    await appWindow.close();
+                    if (appWindow.label === 'panel') {
+                        await invoke('hide_panel_window');
+                    } else {
+                        await appWindow.close();
+                    }
                 }
             });
         }

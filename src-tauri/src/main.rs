@@ -214,6 +214,7 @@ fn main() {
             create_task,
             update_task,
             delete_task,
+            restore_task,
             clear_completed_tasks,
             reorder_tasks,
             list_copy_items,

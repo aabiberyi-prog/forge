@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::WindowEvent;
 
 use super::json_store::{app_data_dir, read_json, write_json};
 
@@ -143,11 +144,46 @@ fn save_window_snapshot(app: &AppHandle, window: &WebviewWindow) -> Result<(), S
     save_settings(app, &settings)
 }
 
+pub(crate) fn clamp_to_monitor(
+    state: WindowState,
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_width: u32,
+    monitor_height: u32,
+) -> WindowState {
+    let titlebar_visible_width = 120;
+    let titlebar_visible_height = 34;
+    let max_x = monitor_x + monitor_width as i32 - titlebar_visible_width;
+    let max_y = monitor_y + monitor_height as i32 - titlebar_visible_height;
+    WindowState {
+        x: state.x.clamp(monitor_x, max_x.max(monitor_x)),
+        y: state.y.clamp(monitor_y, max_y.max(monitor_y)),
+        width: state.width.max(MIN_WINDOW_WIDTH),
+        height: state.height.max(MIN_WINDOW_HEIGHT),
+    }
+}
+
 pub fn restore_panel_window(window: &WebviewWindow) -> Result<PanelSettings, String> {
     let app = window.app_handle();
     let settings = load_settings(app)?;
     apply_settings_to_window(window, &settings)?;
-    let state = settings.window.clone();
+    let mut state = settings.window.clone();
+    if let Some(monitor) = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .or_else(|| {
+            window
+                .available_monitors()
+                .ok()
+                .and_then(|mut monitors| monitors.pop())
+        })
+    {
+        let position = monitor.position();
+        let size = monitor.size();
+        state = clamp_to_monitor(state, position.x, position.y, size.width, size.height);
+    }
     if !is_invalid_window_snapshot(&state) && !is_top_left_minimum_window_snapshot(&state) {
         let _ = window.set_position(tauri::PhysicalPosition::new(state.x, state.y));
         let _ = window.set_size(tauri::PhysicalSize::new(state.width, state.height));
@@ -159,6 +195,25 @@ pub fn restore_panel_window(window: &WebviewWindow) -> Result<PanelSettings, Str
         MIN_WINDOW_HEIGHT as f64,
     )));
     Ok(settings)
+}
+
+pub fn attach_panel_lifecycle(window: &WebviewWindow) {
+    let app = window.app_handle().clone();
+    let label = window.label().to_string();
+    window.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            if let Some(panel) = app.get_webview_window(&label) {
+                let _ = hide_panel_window(app.clone(), panel);
+            }
+        }
+        WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+            if let Some(panel) = app.get_webview_window(&label) {
+                let _ = save_window_snapshot(&app, &panel);
+            }
+        }
+        _ => {}
+    });
 }
 
 #[tauri::command]
@@ -266,5 +321,20 @@ mod tests {
         };
 
         assert!(!should_save_window_snapshot(&current, &next, true, false));
+    }
+
+    #[test]
+    fn clamp_keeps_titlebar_on_disconnected_monitor_coordinates() {
+        let state = WindowState {
+            x: -8000,
+            y: -4000,
+            width: 200,
+            height: 200,
+        };
+        let clamped = clamp_to_monitor(state, 0, 0, 1920, 1080);
+        assert_eq!(clamped.x, 0);
+        assert_eq!(clamped.y, 0);
+        assert!(clamped.width >= MIN_WINDOW_WIDTH);
+        assert!(clamped.height >= MIN_WINDOW_HEIGHT);
     }
 }

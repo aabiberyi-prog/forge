@@ -72,3 +72,60 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+.forge-panel-notice.is-warn {
+    color: var(--nextui-colors-warning);
+}
+
+.forge-panel-notice.is-error {
+    color: var(--nextui-colors-danger);
+}
+
+.forge-history-row {
+    align-items: flex-start;
+}
+
+.forge-history-time {
+    font-size: 11px;
+    opacity: 0.55;
+    margin-top: 2px;
+}
+
+.forge-status-tag {
+    font-size: 10px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    flex-shrink: 0;
+}
+
+.forge-status-completed {
+    color: #86efac;
+}
+
+.forge-status-archived {
+    opacity: 0.8;
+}
+
+.forge-status-deleted {
+    color: #fca5a5;
+}
+
+.forge-clip-image-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.forge-clip-thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.forge-clip-thumb-empty {
+    display: inline-block;
+}

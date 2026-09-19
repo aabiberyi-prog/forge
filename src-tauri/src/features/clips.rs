@@ -138,6 +138,7 @@ pub fn migrate_json_clips(app: &AppHandle) -> Result<(), String> {
 fn load_copy_items(app: &AppHandle) -> Result<Vec<CopyItem>, String> {
     migrate_json_clips(app)?;
     let conn = db::open(app)?;
+    db::init_schema_on(&conn)?;
     let mut stmt = conn
         .prepare("SELECT id, title, text, order_index, created_at, updated_at FROM clips")
         .map_err(|error| error.to_string())?;
@@ -160,7 +161,7 @@ fn load_copy_items(app: &AppHandle) -> Result<Vec<CopyItem>, String> {
     for (id, title, text, order, created_at, updated_at) in clip_rows {
         let mut img_stmt = conn
             .prepare(
-                "SELECT id, file_name, mime_type, relative_path, size_bytes, created_at FROM clip_images WHERE clip_id = ?1",
+                "SELECT id, file_name, mime_type, relative_path, size_bytes, created_at FROM clip_images WHERE clip_id = ?1 ORDER BY order_index, id",
             )
             .map_err(|error| error.to_string())?;
         let images = img_stmt
@@ -205,7 +206,7 @@ fn save_copy_items(app: &AppHandle, items: &[CopyItem]) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         let mut image_stmt = tx
             .prepare(
-                "INSERT INTO clip_images(id, clip_id, file_name, mime_type, relative_path, size_bytes, created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                "INSERT INTO clip_images(id, clip_id, file_name, mime_type, relative_path, size_bytes, created_at, order_index) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
             )
             .map_err(|error| error.to_string())?;
         for item in items {
@@ -219,7 +220,7 @@ fn save_copy_items(app: &AppHandle, items: &[CopyItem]) -> Result<(), String> {
                     item.updated_at,
                 ])
                 .map_err(|error| error.to_string())?;
-            for image in &item.images {
+            for (order, image) in item.images.iter().enumerate() {
                 image_stmt
                     .execute(params![
                         image.id,
@@ -229,12 +230,56 @@ fn save_copy_items(app: &AppHandle, items: &[CopyItem]) -> Result<(), String> {
                         image.relative_path,
                         image.size_bytes,
                         image.created_at,
+                        order as i32,
                     ])
                     .map_err(|error| error.to_string())?;
             }
         }
     }
     tx.commit().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn upsert_clip(conn: &rusqlite::Connection, item: &CopyItem) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO clips(id, title, text, order_index, created_at, updated_at) VALUES(?1,?2,?3,?4,?5,?6)
+         ON CONFLICT(id) DO UPDATE SET
+            title=excluded.title,
+            text=excluded.text,
+            order_index=excluded.order_index,
+            created_at=excluded.created_at,
+            updated_at=excluded.updated_at",
+        params![
+            item.id,
+            item.title,
+            item.text,
+            item.order,
+            item.created_at,
+            item.updated_at,
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "DELETE FROM clip_images WHERE clip_id = ?1",
+        params![item.id],
+    )
+    .map_err(|error| error.to_string())?;
+    for (order, image) in item.images.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO clip_images(id, clip_id, file_name, mime_type, relative_path, size_bytes, created_at, order_index) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                image.id,
+                item.id,
+                image.file_name,
+                image.mime_type,
+                image.relative_path,
+                image.size_bytes,
+                image.created_at,
+                order as i32,
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
@@ -506,9 +551,10 @@ pub fn get_copy_item(app: AppHandle, id: String) -> Result<CopyItem, String> {
 
 #[tauri::command]
 pub fn create_copy_item(app: AppHandle, input: CopyItemInput) -> Result<CopyItem, String> {
+    let title = validate_copy_title(&input.title)?;
     validate_copy_image_count(input.images.len())?;
 
-    let mut items = load_copy_items(&app)?;
+    let items = load_copy_items(&app)?;
     let now = timestamp();
     let item_id = next_copy_item_id();
     let order = items.iter().map(|item| item.order).max().unwrap_or(-1) + 1;
@@ -522,7 +568,7 @@ pub fn create_copy_item(app: AppHandle, input: CopyItemInput) -> Result<CopyItem
 
     let item = CopyItem {
         id: item_id,
-        title: validate_copy_title(&input.title)?,
+        title,
         text: input.text.trim().to_string(),
         images,
         order,
@@ -530,8 +576,9 @@ pub fn create_copy_item(app: AppHandle, input: CopyItemInput) -> Result<CopyItem
         updated_at: now,
     };
 
-    items.push(item.clone());
-    save_copy_items(&app, &items)?;
+    let conn = db::open(&app)?;
+    db::init_schema_on(&conn)?;
+    upsert_clip(&conn, &item)?;
     Ok(item)
 }
 
@@ -541,6 +588,7 @@ pub fn update_copy_item(
     id: String,
     input: CopyItemInput,
 ) -> Result<CopyItem, String> {
+    let title = validate_copy_title(&input.title)?;
     validate_copy_image_count(input.images.len())?;
 
     let mut items = load_copy_items(&app)?;
@@ -559,15 +607,17 @@ pub fn update_copy_item(
             image_index,
         )?);
     }
-    remove_unused_copy_images(&app, &old_item, &images);
 
-    items[index].title = validate_copy_title(&input.title)?;
+    items[index].title = title;
     items[index].text = input.text.trim().to_string();
     items[index].images = images;
     items[index].updated_at = timestamp();
 
     let item = items[index].clone();
-    save_copy_items(&app, &items)?;
+    let conn = db::open(&app)?;
+    db::init_schema_on(&conn)?;
+    upsert_clip(&conn, &item)?;
+    remove_unused_copy_images(&app, &old_item, &item.images);
     Ok(item)
 }
 
@@ -581,13 +631,19 @@ pub fn delete_copy_item(app: AppHandle, id: String) -> Result<(), String> {
         return Err(format!("copy item not found: {}", id));
     }
 
+    let conn = db::open(&app)?;
+    db::init_schema_on(&conn)?;
+    conn.execute("DELETE FROM clip_images WHERE clip_id = ?1", params![id])
+        .map_err(|error| error.to_string())?;
+    conn.execute("DELETE FROM clips WHERE id = ?1", params![id])
+        .map_err(|error| error.to_string())?;
     remove_copy_item_assets(&app, &id);
-    save_copy_items(&app, &items)
+    Ok(())
 }
 
 #[tauri::command]
 pub fn reorder_copy_items(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
-    let mut items = load_copy_items(&app)?;
+    let items = load_copy_items(&app)?;
     if ids.len() != items.len() {
         return Err("reorder ids must contain the exact current copy item set".to_string());
     }
@@ -603,13 +659,16 @@ pub fn reorder_copy_items(app: AppHandle, ids: Vec<String>) -> Result<(), String
         }
     }
 
+    let conn = db::open(&app)?;
+    db::init_schema_on(&conn)?;
     for (order, id) in ids.iter().enumerate() {
-        if let Some(item) = items.iter_mut().find(|item| item.id == *id) {
-            item.order = order as i32;
-        }
+        conn.execute(
+            "UPDATE clips SET order_index = ?1 WHERE id = ?2",
+            params![order as i32, id],
+        )
+        .map_err(|error| error.to_string())?;
     }
-
-    save_copy_items(&app, &items)
+    Ok(())
 }
 
 #[tauri::command]
@@ -666,6 +725,47 @@ mod tests {
         assert!(payload.html.contains("Line 2 &amp; note"));
         assert!(payload.html.contains("data:image/png;base64,AAAA"));
         assert_eq!(payload.text, "Line 1\nLine 2 & note");
+    }
+
+    #[test]
+    fn clip_images_round_trip_in_explicit_order() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        db::init_schema_on(&conn).unwrap();
+        let item = CopyItem {
+            id: "copy-order".into(),
+            title: "ordered".into(),
+            text: String::new(),
+            images: vec![
+                CopyImage {
+                    id: "b".into(),
+                    file_name: "b.png".into(),
+                    mime_type: "image/png".into(),
+                    relative_path: "copy-assets/copy-order/b.png".into(),
+                    size_bytes: 1,
+                    created_at: "2".into(),
+                },
+                CopyImage {
+                    id: "a".into(),
+                    file_name: "a.png".into(),
+                    mime_type: "image/png".into(),
+                    relative_path: "copy-assets/copy-order/a.png".into(),
+                    size_bytes: 1,
+                    created_at: "1".into(),
+                },
+            ],
+            order: 0,
+            created_at: "1".into(),
+            updated_at: "1".into(),
+        };
+        upsert_clip(&conn, &item).unwrap();
+        let ids: Vec<String> = conn
+            .prepare("SELECT id FROM clip_images WHERE clip_id='copy-order' ORDER BY order_index, id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(ids, vec!["b".to_string(), "a".to_string()]);
     }
 
     #[test]

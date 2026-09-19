@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 fn desktop_todo_dir() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("FORGE_TODO_SOURCE_DIR") {
@@ -80,7 +80,11 @@ pub fn preview_desktop_todo_import(app: AppHandle) -> Result<MergeReport, String
 
 #[tauri::command]
 pub fn import_desktop_todo_data(app: AppHandle, dry_run: Option<bool>) -> Result<serde_json::Value, String> {
-    let report = run_merge(&app, dry_run.unwrap_or(false))?;
+    let dry_run = dry_run.unwrap_or(false);
+    let report = run_merge(&app, dry_run)?;
+    if !dry_run {
+        let _ = app.emit("desktop-todo-imported", &report);
+    }
     Ok(json!(report))
 }
 
@@ -89,6 +93,7 @@ mod tests {
     use super::*;
     use crate::features::db::init_schema_on;
     use crate::features::merge::{self, merge_into};
+    use crate::features::tasks::restore_task_on;
     use rusqlite::Connection;
 
     #[test]
@@ -154,6 +159,31 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM clip_images", [], |row| row.get(0))
             .unwrap();
         assert_eq!(image_n, 8);
+        let history_n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE done = 1 OR archived_at IS NOT NULL OR deleted_at IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(history_n, 69);
+        let deleted = tasks
+            .iter()
+            .find(|task| task.deleted_at.is_some())
+            .expect("deleted baseline task");
+        let restored = restore_task_on(&conn, &deleted.id).unwrap();
+        assert_eq!(restored.id, deleted.id);
+        assert_eq!(restored.created_at, deleted.created_at);
+        assert!(restored.deleted_at.is_none());
+        restore_task_on(&conn, &deleted.id).unwrap();
+        let same_id: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE id = ?1",
+                rusqlite::params![deleted.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(same_id, 1);
         for item in &clips {
             for image in &item.images {
                 let source = dir.join(&image.relative_path);
