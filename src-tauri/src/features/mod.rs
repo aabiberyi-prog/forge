@@ -1,3 +1,4 @@
+pub mod capture;
 pub mod clips;
 pub mod db;
 pub mod hotkeys;

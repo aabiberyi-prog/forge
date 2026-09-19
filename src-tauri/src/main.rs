@@ -22,6 +22,7 @@ use backup::*;
 use clipboard::*;
 use cmd::*;
 use config::*;
+use features::capture::*;
 use features::clips::*;
 use features::hotkeys::*;
 use features::import_todo::*;
@@ -127,6 +128,7 @@ fn main() {
             // Start http server
             start_server();
             // Register Global Shortcut
+            crate::features::capture::ensure_capture_hotkey_defaults();
             match register_shortcut("all") {
                 Ok(()) => {}
                 Err(e) => app
@@ -215,6 +217,8 @@ fn main() {
             get_panel_settings,
             set_panel_settings,
             hide_panel_window,
+            get_capture_mode,
+            finish_capture,
             secret_get,
             secret_set,
             list_hotkey_registry,

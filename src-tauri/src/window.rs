@@ -79,6 +79,7 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
             let _ = v.unminimize();
             let _ = v.show();
             let keep_top = label != "panel"
+                && label != "pin"
                 && (match get("translate_always_on_top") {
                     Some(val) => val.as_bool().unwrap_or(false),
                     None => false,
@@ -91,7 +92,7 @@ fn build_window(label: &str, title: &str) -> (WebviewWindow, bool) {
             // Restore unpinned unless user/config wants always-on-top
             if keep_top {
                 let _ = v.set_always_on_top(true);
-            } else if label != "panel" {
+            } else if label != "panel" && label != "pin" {
                 let _ = v.set_always_on_top(false);
             }
             (v, true)
@@ -423,6 +424,7 @@ pub fn ocr_recognize() {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        crate::features::capture::set_capture_mode("ocr");
         let window = screenshot_window();
         let window_ = window.clone();
         window.listen("success", move |event| {
@@ -457,6 +459,7 @@ pub fn ocr_translate() {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        crate::features::capture::set_capture_mode("ocr");
         let window = screenshot_window();
         let window_ = window.clone();
         window.listen("success", move |event| {
@@ -464,6 +467,23 @@ pub fn ocr_translate() {
             window_.unlisten(event.id())
         });
     }
+}
+
+pub fn capture_region() {
+    crate::features::capture::set_capture_mode("save");
+    let _ = screenshot_window();
+}
+
+pub fn pin_capture() {
+    crate::features::capture::set_capture_mode("pin");
+    let _ = screenshot_window();
+}
+
+pub fn pin_window() {
+    let (window, _exists) = build_window("pin", "Pin");
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_always_on_top(true);
+    let _ = window.show();
 }
 
 #[tauri::command(async)]

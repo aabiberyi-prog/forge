@@ -2,7 +2,8 @@
 
 #[cfg(windows)]
 pub fn capture_region() -> Result<(), String> {
-    Err("region capture annotation is Phase 4".to_string())
+    crate::window::capture_region();
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
