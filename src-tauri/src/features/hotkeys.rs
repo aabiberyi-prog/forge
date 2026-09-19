@@ -38,13 +38,17 @@ pub fn planned_bindings() -> Vec<HotkeyStatus> {
             error: None,
         },
         HotkeyStatus {
-            id: "scrolling_capture".into(),
+            id: "hotkey_scrolling_capture".into(),
             action: "Scrolling capture".into(),
-            shortcut: "Alt+2".into(),
+            shortcut: configured("hotkey_scrolling_capture", "Alt+2"),
             source: "ShareX".into(),
-            implemented: false,
+            implemented: cfg!(windows),
             registered: false,
-            error: Some("Phase 6".into()),
+            error: if cfg!(windows) {
+                None
+            } else {
+                Some("Windows-only".into())
+            },
         },
         HotkeyStatus {
             id: "hotkey_pin_to_screen".into(),
@@ -178,10 +182,11 @@ mod tests {
     #[test]
     fn sharex_defaults_are_not_registered_yet() {
         let bindings = planned_bindings();
-        for item in bindings.iter().filter(|item| item.shortcut == "Alt+2") {
-            assert!(!item.implemented);
-            assert!(!item.registered);
-        }
+        let scroll = bindings
+            .iter()
+            .find(|item| item.id == "hotkey_scrolling_capture")
+            .unwrap();
+        assert_eq!(scroll.implemented, cfg!(windows));
         let capture = bindings
             .iter()
             .find(|item| item.id == "hotkey_capture_region")

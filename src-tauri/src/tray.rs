@@ -1,6 +1,7 @@
 use crate::clipboard::*;
 use crate::config::{get, set};
 use crate::features::recorder::toggle_recording;
+use crate::features::scroll::start_scrolling_capture;
 use crate::window::{
     capture_region, config_window, input_translate, ocr_recognize, ocr_translate, panel_window,
     pin_capture, updater_window,
@@ -127,6 +128,7 @@ fn build_menu(
         .text("capture", text("capture"))
         .text("pin", text("pin"))
         .text("record", text("record"))
+        .text("scroll", text("scroll"))
         .text("check_update", text("check_update"))
         .text("view_log", text("view_log"))
         .separator()
@@ -145,6 +147,7 @@ fn handle_menu(app: &AppHandle, event: MenuEvent) {
         "capture" => capture_region(),
         "pin" => pin_capture(),
         "record" => toggle_recording(),
+        "scroll" => start_scrolling_capture(),
         "check_update" => updater_window(),
         "clipboard_monitor" => {
             let enabled = !get("clipboard_monitor")
@@ -218,6 +221,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "Capture"),
             ("pin", "Pin"),
             ("record", "Record"),
+            ("scroll", "Scrolling capture"),
             ("check_update", "Check Update"),
             ("view_log", "View Log"),
             ("restart", "Restart"),
@@ -238,6 +242,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "截图"),
             ("pin", "钉住"),
             ("record", "录制"),
+            ("scroll", "滚动截图"),
             ("check_update", "检查更新"),
             ("restart", "重启应用"),
             ("view_log", "查看日志"),
@@ -258,6 +263,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "截圖"),
             ("pin", "釘選"),
             ("record", "錄製"),
+            ("scroll", "捲動截圖"),
             ("check_update", "檢查更新"),
             ("restart", "重啓程式"),
             ("view_log", "查看日誌"),
@@ -278,6 +284,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "キャプチャ"),
             ("pin", "ピン"),
             ("record", "録画"),
+            ("scroll", "スクロール"),
             ("check_update", "更新を確認する"),
             ("restart", "アプリの再起動"),
             ("view_log", "ログを見る"),
@@ -298,6 +305,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "캡처"),
             ("pin", "고정"),
             ("record", "녹화"),
+            ("scroll", "스크롤"),
             ("check_update", "업데이트 확인"),
             ("restart", "응용 프로그램 다시 시작"),
             ("view_log", "로그 보기"),
@@ -318,6 +326,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "Capture"),
             ("pin", "Épingler"),
             ("record", "Enregistrer"),
+            ("scroll", "Défilement"),
             ("check_update", "Vérifier les mises à jour"),
             ("restart", "Redémarrer l'application"),
             ("view_log", "Voir le journal"),
@@ -338,6 +347,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "Aufnahme"),
             ("pin", "Anheften"),
             ("record", "Aufnehmen"),
+            ("scroll", "Scrollen"),
             ("check_update", "Auf Updates prüfen"),
             ("restart", "Anwendung neu starten"),
             ("view_log", "Protokoll anzeigen"),
@@ -358,6 +368,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "Снимок"),
             ("pin", "Закрепить"),
             ("record", "Запись"),
+            ("scroll", "Прокрутка"),
             ("check_update", "Проверить обновления"),
             ("restart", "Перезапустить приложение"),
             ("view_log", "Просмотр журнала"),
@@ -378,6 +389,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "Capture"),
             ("pin", "Pin"),
             ("record", "Record"),
+            ("scroll", "Scrolling capture"),
             ("check_update", "بررسی بروزرسانی"),
             ("restart", "راه‌اندازی مجدد برنامه"),
             ("view_log", "مشاهده گزارشات"),
@@ -398,6 +410,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "Captura"),
             ("pin", "Fixar"),
             ("record", "Gravar"),
+            ("scroll", "Rolagem"),
             ("check_update", "Checar por Atualização"),
             ("restart", "Reiniciar aplicativo"),
             ("view_log", "Exibir Registro"),
@@ -418,6 +431,7 @@ fn labels(language: &str) -> &'static [(&'static str, &'static str)] {
             ("capture", "Знімок"),
             ("pin", "Закріпити"),
             ("record", "Запис"),
+            ("scroll", "Прокрутка"),
             ("check_update", "Перевірити оновлення"),
             ("restart", "Перезапустити додаток"),
             ("view_log", "Перегляд журналу"),

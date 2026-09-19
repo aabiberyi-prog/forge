@@ -1,5 +1,6 @@
 use crate::config::{get, set};
 use crate::features::recorder::toggle_recording;
+use crate::features::scroll::start_scrolling_capture;
 use crate::window::{
     capture_region, input_translate, ocr_recognize, ocr_translate, pin_capture, selection_translate,
 };
@@ -50,7 +51,7 @@ where
     Ok(())
 }
 
-const CONFIGURED_HOTKEY_IDS: [&str; 7] = [
+const CONFIGURED_HOTKEY_IDS: [&str; 8] = [
     "hotkey_selection_translate",
     "hotkey_input_translate",
     "hotkey_ocr_recognize",
@@ -58,13 +59,12 @@ const CONFIGURED_HOTKEY_IDS: [&str; 7] = [
     "hotkey_capture_region",
     "hotkey_pin_to_screen",
     "hotkey_screen_recording",
+    "hotkey_scrolling_capture",
 ];
 
 pub(crate) fn reserved_shortcut(shortcut: &str) -> Option<&'static str> {
-    match shortcut.to_ascii_lowercase().as_str() {
-        "alt+2" => Some("Scrolling capture (Phase 6)"),
-        _ => None,
-    }
+    let _ = shortcut;
+    None
 }
 
 fn conflict_reason(name: &str, shortcut: &str) -> Option<String> {
@@ -107,6 +107,12 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
         "hotkey_screen_recording" => {
             register(app_handle, "hotkey_screen_recording", toggle_recording, "")?
         }
+        "hotkey_scrolling_capture" => register(
+            app_handle,
+            "hotkey_scrolling_capture",
+            start_scrolling_capture,
+            "",
+        )?,
         "all" => {
             register(
                 app_handle,
@@ -120,6 +126,12 @@ pub fn register_shortcut(shortcut: &str) -> Result<(), String> {
             register(app_handle, "hotkey_capture_region", capture_region, "")?;
             register(app_handle, "hotkey_pin_to_screen", pin_capture, "")?;
             register(app_handle, "hotkey_screen_recording", toggle_recording, "")?;
+            register(
+                app_handle,
+                "hotkey_scrolling_capture",
+                start_scrolling_capture,
+                "",
+            )?;
         }
         _ => {}
     }
@@ -162,6 +174,12 @@ pub fn register_shortcut_by_frontend(name: &str, shortcut: &str) -> Result<(), S
                 shortcut,
             )?
         }
+        "hotkey_scrolling_capture" => register(
+            app_handle,
+            "hotkey_scrolling_capture",
+            start_scrolling_capture,
+            shortcut,
+        )?,
         _ => {}
     }
     Ok(())
@@ -176,7 +194,7 @@ mod tests {
         assert!(reserved_shortcut("Alt+1").is_none());
         assert!(reserved_shortcut("Alt+3").is_none());
         assert!(reserved_shortcut("Alt+5").is_none());
-        assert!(reserved_shortcut("alt+2").unwrap().contains("Phase 6"));
+        assert!(reserved_shortcut("Alt+2").is_none());
         assert!(reserved_shortcut("Alt+4").is_none());
         assert!(reserved_shortcut("Alt+Q").is_none());
         assert!(reserved_shortcut("Alt+W").is_none());

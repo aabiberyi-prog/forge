@@ -53,6 +53,7 @@ export default function Hotkey() {
     const [captureRegion, setCaptureRegion] = useConfig('hotkey_capture_region', 'Alt+1');
     const [pinToScreen, setPinToScreen] = useConfig('hotkey_pin_to_screen', 'Alt+3');
     const [screenRecording, setScreenRecording] = useConfig('hotkey_screen_recording', 'Alt+4');
+    const [scrollingCapture, setScrollingCapture] = useConfig('hotkey_scrolling_capture', 'Alt+2');
 
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
@@ -336,6 +337,37 @@ export default function Hotkey() {
                                     className={`${screenRecording === '' && 'hidden'}`}
                                     onPress={() => {
                                         registerHandler('hotkey_screen_recording', screenRecording);
+                                    }}
+                                >
+                                    {t('common.ok')}
+                                </Button>
+                            }
+                        />
+                    )}
+                </div>
+                <div className='config-item'>
+                    <h3 className='my-auto'>{t('config.hotkey.scrolling_capture')}</h3>
+                    {scrollingCapture !== null && (
+                        <Input
+                            type='hotkey'
+                            variant='bordered'
+                            value={scrollingCapture}
+                            label={t('config.hotkey.set_hotkey')}
+                            className='max-w-[50%]'
+                            onKeyDown={(e) => {
+                                keyDown(e, setScrollingCapture);
+                            }}
+                            onFocus={() => {
+                                unregister(scrollingCapture);
+                                setScrollingCapture('');
+                            }}
+                            endContent={
+                                <Button
+                                    size='sm'
+                                    variant='flat'
+                                    className={`${scrollingCapture === '' && 'hidden'}`}
+                                    onPress={() => {
+                                        registerHandler('hotkey_scrolling_capture', scrollingCapture);
                                     }}
                                 >
                                     {t('common.ok')}

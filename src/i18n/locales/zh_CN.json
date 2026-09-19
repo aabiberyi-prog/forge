@@ -158,6 +158,7 @@
                 "capture_region": "区域截图",
                 "pin_to_screen": "钉在屏幕上",
                 "screen_recording": "屏幕录制",
+                "scrolling_capture": "滚动截图",
                 "is_register": "快捷键已被注册",
                 "success": "快捷键注册成功",
                 "set_hotkey": "按下按键设置快捷键"

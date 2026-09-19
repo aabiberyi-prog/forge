@@ -158,6 +158,7 @@
                 "capture_region": "Capture region",
                 "pin_to_screen": "Pin to screen",
                 "screen_recording": "Screen recording",
+                "scrolling_capture": "Scrolling capture",
                 "is_register": "The hotkey is already registered",
                 "success": "Hotkey register success",
                 "set_hotkey": "Press to Set Hotkey"
