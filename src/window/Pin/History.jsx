@@ -21,7 +21,7 @@ export default function PinHistory() {
     }, []);
 
     return (
-        <div className='h-screen bg-zinc-900 text-white p-3 flex flex-col gap-2'>
+        <div className='h-screen text-white p-3 flex flex-col gap-2' style={{ backgroundColor: 'rgb(24 24 27 / var(--pot-bg-opacity, 0.92))' }}>
             <div className='flex items-center justify-between'>
                 <h1 className='text-sm font-semibold'>{t('pin.history_title')}</h1>
                 <Button size='sm' variant='light' onPress={() => appWindow.close()}>

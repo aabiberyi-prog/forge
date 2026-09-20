@@ -1,0 +1,8 @@
+{
+    "app": {
+        "windows": [
+            { "title": "Daemon", "label": "daemon", "visible": false, "url": "daemon.html", "useHttpsScheme": true },
+            { "title": "Forge Review · Panel opacity fixture", "label": "panel", "visible": false, "url": "index.html", "useHttpsScheme": true, "transparent": true, "decorations": false, "width": 400, "height": 550 }
+        ]
+    }
+}

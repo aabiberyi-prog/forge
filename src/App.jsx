@@ -16,6 +16,7 @@ import Panel from './window/Panel';
 import Pin from './window/Pin';
 import PinHistory from './window/Pin/History';
 import { useConfig } from './hooks';
+import { applyWindowOpacity } from './utils/window_opacity';
 import './style.css';
 import './i18n';
 const appWindow = getCurrentWebviewWindow();
@@ -37,12 +38,18 @@ export default function App() {
     const [appFont] = useConfig('app_font', 'default');
     const [appFallbackFont] = useConfig('app_fallback_font', 'default');
     const [appFontSize] = useConfig('app_font_size', 16);
+    const [windowOpacity] = useConfig('window_opacity', 0.92, { sync: false });
+    const [transparent] = useConfig('transparent', true, { sync: false });
     const { setTheme } = useTheme();
     const { i18n } = useTranslation();
 
     useEffect(() => {
         store.reload();
     }, []);
+
+    useEffect(() => {
+        applyWindowOpacity(document.documentElement, windowOpacity, transparent);
+    }, [windowOpacity, transparent]);
 
     useEffect(() => {
         if (devMode !== null && devMode) {

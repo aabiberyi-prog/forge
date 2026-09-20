@@ -13,6 +13,14 @@ html {
     overflow: hidden;
 }
 
+.forge-window-background {
+    background-color: hsl(var(--nextui-background) / var(--pot-bg-opacity, 0.92));
+}
+
+.forge-config .bg-content1 {
+    background-color: hsl(var(--nextui-content1) / var(--pot-bg-opacity, 0.92));
+}
+
 *::-webkit-scrollbar {
     width: 5px;
 }

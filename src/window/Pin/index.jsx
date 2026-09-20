@@ -54,8 +54,8 @@ export default function Pin() {
     }, [t]);
 
     return (
-        <div className='h-screen w-screen bg-black/40 text-white flex flex-col'>
-            <div ref={topBar} className='flex flex-wrap items-center gap-1 px-1 py-0.5 text-[11px] shrink-0' data-tauri-drag-region>
+        <div className='h-screen w-screen text-white flex flex-col'>
+            <div ref={topBar} className='bg-black/40 flex flex-wrap items-center gap-1 px-1 py-0.5 text-[11px] shrink-0' data-tauri-drag-region>
                 <Button size='sm' variant='light' onPress={() => appWindow.minimize()}>
                     {t('pin.minimize')}
                 </Button>
@@ -117,7 +117,7 @@ export default function Pin() {
                 />
                 </div>
             )}
-            <div ref={bottomBar} className='flex flex-wrap items-center gap-2 px-2 py-1 text-[11px] shrink-0'>
+            <div ref={bottomBar} className='bg-black/40 flex flex-wrap items-center gap-2 px-2 py-1 text-[11px] shrink-0'>
                 <span>{t('pin.scale')}</span>
                 <Slider
                     size='sm'

@@ -247,12 +247,15 @@ pub fn get_window_opacity() -> f64 {
 
 pub fn apply_opacity_to_app(app_handle: &tauri::AppHandle, opacity: f64) -> Result<(), String> {
     let opacity = opacity.clamp(0.15, 1.0);
-    let labels = ["translate", "config", "recognize", "updater"];
+    let labels = ["translate", "config", "recognize", "updater", "screenshot", "pin-history"];
     for label in labels {
         if let Some(window) = app_handle.get_webview_window(label) {
             apply_opacity_to_window(&window, opacity)?;
         }
     }
+    // Use the same configuration event consumed by all useConfig subscribers,
+    // including sliders in other windows. Receivers must not write it back.
+    app_handle.emit("window_opacity_changed", opacity).map_err(|error| error.to_string())?;
     Ok(())
 }
 

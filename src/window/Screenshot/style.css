@@ -1,6 +1,6 @@
 .capture-editor {
     position: fixed; inset: 0; display: flex; flex-direction: column;
-    background: #181c23; color: #eef1f6; font: 13px/1.4 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    background: transparent; color: #eef1f6; font: 13px/1.4 'Segoe UI', 'Microsoft YaHei', sans-serif;
     outline: none;
 }
 .capture-editor button, .capture-selection-toolbar button {
@@ -12,22 +12,22 @@
 .capture-editor textarea:focus-visible, .capture-selection-toolbar button:focus-visible { outline: 2px solid #70b4ff; outline-offset: 2px; }
 .capture-editor button:disabled { opacity: .4; cursor: default; }
 .capture-editor svg { width: 17px; height: 17px; flex-shrink: 0; }
-.capture-tools { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; background: #20252e; border-bottom: 1px solid #39404c; }
+.capture-tools { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; background: rgb(32 37 46 / var(--pot-bg-opacity, 0.92)); border-bottom: 1px solid #39404c; }
 .capture-editor .capture-tool { min-width: 44px; min-height: 46px; flex-direction: column; gap: 3px; padding: 5px 9px; font-size: 11px; }
 .capture-editor .capture-tool[aria-pressed='true'], .capture-selection-toolbar button[data-selected='true'] { color: #fff; background: #235fa5; border-color: #72b6ff; }
-.capture-properties { min-height: 64px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 8px 12px; background: #20252e; border-bottom: 1px solid #39404c; }
+.capture-properties { min-height: 64px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 8px 12px; background: rgb(32 37 46 / var(--pot-bg-opacity, 0.92)); border-bottom: 1px solid #39404c; }
 .capture-property-context { color: #bac5d4; padding-right: 4px; }
 .capture-field { display: flex; flex-direction: column; gap: 3px; color: #c2cbd8; font-size: 11px; }
 .capture-field input, .capture-field select { color: #eef1f6; background: #12161d; border: 1px solid #485363; border-radius: 4px; height: 28px; padding: 3px 6px; min-width: 68px; max-width: 150px; font: 12px 'Segoe UI', 'Microsoft YaHei', sans-serif; color-scheme: dark; }
 .capture-field input[type='number'] { width: 74px; }
 .capture-field input[type='color'] { width: 42px; min-width: 42px; padding: 2px; }
-.capture-workspace { flex: 1; min-height: 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto; background: #11151b; }
+.capture-workspace { flex: 1; min-height: 0; min-width: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto; background: rgb(17 21 27 / var(--pot-bg-opacity, 0.92)); }
 .capture-canvas { display: block; max-width: 100%; max-height: 100%; object-fit: contain; touch-action: none; cursor: crosshair; background: #fff; outline: none; box-shadow: 0 2px 14px #0007; }
 .capture-text-editor { position: absolute; z-index: 10; min-width: 220px; max-width: calc(100% - 12px); min-height: 70px; padding: 8px; resize: both; color: #182334; background: #fff; border: 2px solid #3b91ec; border-radius: 4px; }
-.capture-object-actions { min-height: 42px; flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px 12px; border-top: 1px solid #39404c; }
+.capture-object-actions { min-height: 42px; flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px 12px; border-top: 1px solid #39404c; background: rgb(24 28 35 / var(--pot-bg-opacity, 0.92)); }
 .capture-object-actions button, .capture-action { min-height: 30px; padding: 5px 10px; }
 .capture-object-actions .capture-hint { margin-left: auto; }
-.capture-footer { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid #39404c; background: #20252e; }
+.capture-footer { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid #39404c; background: rgb(32 37 46 / var(--pot-bg-opacity, 0.92)); }
 .capture-hint { font-size: 11px; color: #a9b6c8; }
 .capture-footer .capture-hint { flex: 1; }
 .capture-editor .capture-save { min-height: 34px; padding: 6px 16px; color: #fff; background: #235fa5; border-color: #72b6ff; font-weight: 600; }

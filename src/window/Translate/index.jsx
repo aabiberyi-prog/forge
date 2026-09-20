@@ -90,7 +90,8 @@ export default function Translate() {
     const [hideLanguage] = useConfig('hide_language', true); // compact: language bar hidden by default
     const [hideSource, setHideSource] = useConfig('hide_source', false);
     const [uiDensity] = useConfig('ui_density', 'compact');
-    const [windowOpacity, setWindowOpacity] = useConfig('window_opacity', 0.92);
+    const [windowOpacity, setWindowOpacity] = useConfig('window_opacity', 0.92, { sync: false });
+    const [transparent] = useConfig('transparent', true);
     const isCompact = uiDensity !== 'standard';
     const [pined, setPined] = useState(false);
     const { t } = useTranslation();
@@ -110,22 +111,6 @@ export default function Translate() {
         const items = reorder(translateServiceInstanceList, result.source.index, result.destination.index);
         setTranslateServiceInstanceList(items);
     };
-    // Keep CSS shell opacity in sync (never fade text panels)
-    useEffect(() => {
-        if (windowOpacity !== null) {
-            document.documentElement.style.setProperty('--pot-bg-opacity', String(windowOpacity));
-        }
-        const un = listen('window_opacity', (e) => {
-            const val = e.payload;
-            if (typeof val === 'number') {
-                setWindowOpacity(val);
-                document.documentElement.style.setProperty('--pot-bg-opacity', String(val));
-            }
-        });
-        return () => {
-            un.then((f) => f());
-        };
-    }, [windowOpacity]);
 
     // Grow window height with content; reflow wrapped text first when width changes
     const fitWindowToContent = useCallback(async () => {
@@ -336,7 +321,6 @@ export default function Translate() {
     }, [translateServiceInstanceList]);
 
     // Shell chrome opacity only — source/target text panels stay fully opaque (see SourceArea/TargetArea).
-    const shellOpacity = windowOpacity ?? 0.92;
     const titleH = isCompact ? 28 : 35;
     const contentPad = isCompact ? 'px-[6px]' : 'px-[8px]';
 
@@ -348,7 +332,7 @@ export default function Translate() {
                 } ${isCompact ? 'pot-density-compact' : ''}`}
                 style={{
                     // Transparent shell; does not multiply/fade child text opacity
-                    backgroundColor: `hsl(var(--nextui-background) / ${shellOpacity})`,
+                    backgroundColor: 'hsl(var(--nextui-background) / var(--pot-bg-opacity, 0.92))',
                     // Kill any residual scrollbars on the shell
                     scrollbarWidth: 'none',
                 }}
@@ -443,6 +427,7 @@ export default function Translate() {
                                 value={windowOpacity}
                                 className='flex-1 max-w-[120px]'
                                 aria-label='window opacity'
+                                isDisabled={transparent === false}
                                 onChange={(v) => {
                                     const val = Array.isArray(v) ? v[0] : v;
                                     setWindowOpacity(val);
@@ -451,6 +436,11 @@ export default function Translate() {
                                     translateOpacityTimer = setTimeout(() => {
                                         invoke('set_window_opacity', { opacity: val }).catch(() => {});
                                     }, 60);
+                                }}
+                                onChangeEnd={(value) => {
+                                    if (translateOpacityTimer) clearTimeout(translateOpacityTimer);
+                                    const opacity = Array.isArray(value) ? value[0] : value;
+                                    invoke('set_window_opacity', { opacity }).catch(() => {});
                                 }}
                             />
                         </div>

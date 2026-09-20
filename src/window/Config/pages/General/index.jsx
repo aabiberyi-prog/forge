@@ -37,7 +37,7 @@ export default function General() {
     const [appFontSize, setAppFontSize] = useConfig('app_font_size', 14);
     const [uiDensity, setUiDensity] = useConfig('ui_density', 'compact');
     const [transparent, setTransparent] = useConfig('transparent', true);
-    const [windowOpacity, setWindowOpacity] = useConfig('window_opacity', 0.92);
+    const [windowOpacity, setWindowOpacity] = useConfig('window_opacity', 0.92, { sync: false });
     const [devMode, setDevMode] = useConfig('dev_mode', false);
     const [trayClickEvent, setTrayClickEvent] = useConfig('tray_click_event', 'config');
     const [proxyEnable, setProxyEnable] = useConfig('proxy_enable', false);
@@ -522,6 +522,7 @@ export default function General() {
                                 value={windowOpacity}
                                 className='max-w-[50%]'
                                 aria-label={t('config.general.window_opacity')}
+                                isDisabled={transparent === false}
                                 onChange={(v) => {
                                     const val = Array.isArray(v) ? v[0] : v;
                                     setWindowOpacity(val);
@@ -534,9 +535,15 @@ export default function General() {
                                         });
                                     }, 80);
                                 }}
+                                onChangeEnd={(value) => {
+                                    if (opacityTimer) clearTimeout(opacityTimer);
+                                    const opacity = Array.isArray(value) ? value[0] : value;
+                                    invoke('set_window_opacity', { opacity }).catch((e) => info(`set_window_opacity failed: ${e}`));
+                                }}
                             />
                         )}
                     </div>
+                    <p className='text-xs text-default-500'>{t('config.general.opacity_scope')}</p>
                     <div className='config-item'>
                         <h3>{t('config.general.dev_mode')}</h3>
                         {devMode !== null && (

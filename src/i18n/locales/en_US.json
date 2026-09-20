@@ -72,6 +72,7 @@
                 },
                 "transparent": "Transparent Effect",
                 "window_opacity": "Window background opacity (text stays solid)",
+                "opacity_scope": "Lower values are more transparent; 100% is opaque. Enable Transparent Effect to adjust window backgrounds. Text and screenshot contents stay solid. Tasks and pinned images have separate opacity controls.",
                 "ui_density": "UI Density",
                 "ui_density_compact": "Compact (default)",
                 "ui_density_standard": "Standard",

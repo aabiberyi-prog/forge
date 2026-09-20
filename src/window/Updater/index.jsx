@@ -7,12 +7,11 @@ import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 
-import { useConfig, useToastStyle } from '../../hooks';
+import { useToastStyle } from '../../hooks';
 import { osType } from '../../utils/env';
 const appWindow = getCurrentWebviewWindow();
 
 export default function Updater() {
-    const [transparent] = useConfig('transparent', true);
     const [downloaded, setDownloaded] = useState(0);
     const [total, setTotal] = useState(0);
     const [body, setBody] = useState('');
@@ -55,7 +54,7 @@ export default function Updater() {
 
     return (
         <div
-            className={`${transparent ? 'bg-background/90' : 'bg-background'} h-screen ${
+            className={`forge-window-background h-screen ${
                 osType === 'Linux' && 'rounded-[10px] border-1 border-default-100'
             }`}
         >

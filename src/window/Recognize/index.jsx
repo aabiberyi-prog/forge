@@ -107,7 +107,7 @@ export default function Recognize() {
         pluginList &&
         serviceInstanceConfigMap !== null && (
             <div
-                className={`bg-background h-screen ${
+                className={`forge-window-background h-screen ${
                     osType === 'Linux' && 'rounded-[10px] border-1 border-default-100'
                 }`}
             >
