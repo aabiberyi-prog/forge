@@ -2,13 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@nextui-org/react';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { currentMonitor } from '@tauri-apps/api/window';
-import { LogicalSize } from '@tauri-apps/api/dpi';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit, listen } from '@tauri-apps/api/event';
 import { warn } from '@tauri-apps/plugin-log';
 import { useTranslation } from 'react-i18next';
 import Annotator from './Annotator';
+import { openEditorWindow } from './window';
 import {
     REGION_TOOLS,
     cropRegionsToImageData,
@@ -73,6 +73,17 @@ export default function Screenshot() {
 
     const imagePoint = (event) => imagePointFromEvent(event, imgRef.current);
 
+    useEffect(() => {
+        if (stage !== 'select') return;
+        const onKey = (event) => {
+            if (event.isComposing || event.target?.closest?.('input, textarea, select')) return;
+            if (event.key === 'Escape') { event.preventDefault(); void appWindow.close(); }
+            if (event.key === 'Enter') { event.preventDefault(); void confirmRegions(); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [stage, regions, draft, mode]);
+
     const confirmRegions = async () => {
         if (confirmingRef.current) return;
         confirmingRef.current = true;
@@ -111,11 +122,7 @@ export default function Screenshot() {
             setNotice(result.error ? t('screenshot.scroll_partial', { reason: t(`screenshot.scroll_reason_${result.stopped}`) }) : '');
             setCutUrl(`${convertFileSrc(result.cutPath)}?t=${Date.now()}`);
             setStage('annotate');
-            await appWindow.setFullscreen(false);
-            await appWindow.center();
-            await appWindow.setSize(new LogicalSize(960, 720));
-            await appWindow.show();
-            await appWindow.setFocus();
+            await openEditorWindow(appWindow, t('screenshot.editor_title'));
             return;
         }
         if (mode === 'ocr') {
@@ -138,11 +145,7 @@ export default function Screenshot() {
         out.getContext('2d').putImageData(new ImageData(cropped.data, cropped.width, cropped.height), 0, 0);
         setCutUrl(out.toDataURL('image/png'));
         setStage('annotate');
-        await appWindow.setFullscreen(false);
-        await appWindow.center();
-        await appWindow.setSize(new LogicalSize(960, 720));
-        await appWindow.show();
-        await appWindow.setFocus();
+        await openEditorWindow(appWindow, t('screenshot.editor_title'));
         } catch (error) {
             setSelectionError(error?.message || String(error));
             setStage('select');
@@ -210,6 +213,7 @@ export default function Screenshot() {
             </svg>
             <div
                 className='fixed top-0 left-0 bottom-0 right-0 cursor-crosshair select-none'
+                onDoubleClick={() => { if (regions.length) void confirmRegions(); }}
                 onPointerDown={(event) => {
                     if (event.button !== 0) {
                         void appWindow.close();
@@ -280,12 +284,13 @@ export default function Screenshot() {
             />
             {selectionError ? <div role='alert' className='fixed top-4 left-4 right-4 bg-danger text-white p-2'>{selectionError}</div> : null}
             {mode === 'scroll' ? <div className='fixed top-4 left-4 bg-black/70 text-white p-2'>{t('screenshot.scroll_hint')}</div> : null}
-            <div className='fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-1 bg-black/60 p-1 rounded'>
+            <div className='capture-selection-toolbar'>
                 {REGION_TOOLS.map((name) => (
                     <Button
                         key={name}
                         size='sm'
                         variant={regionTool === name ? 'solid' : 'flat'}
+                        data-selected={regionTool === name}
                         onPress={() => setRegionTool(name)}
                     >
                         {t(`screenshot.region_${name}`)}
@@ -297,6 +302,7 @@ export default function Screenshot() {
                 <Button size='sm' variant='light' onPress={() => appWindow.close()}>
                     {t('screenshot.cancel')}
                 </Button>
+                <span>{t('screenshot.selection_hint')}</span>
             </div>
         </>
     );

@@ -128,7 +128,7 @@ async function main() {
         }
 
         const oldPaths = new Set((await invoke(config, 'list_pin_history')).filter(x => x.source === 'forge').map(x => x.path));
-        await page.getByRole('button', { name: 'Save', exact: true }).click();
+        await page.getByRole('button', { name: /^(Save|Save and copy)$/, exact: true }).click();
         await page.waitForEvent('close', { timeout: 10000 }).catch(error => { if (!page.isClosed()) throw error; });
         const history = (await invoke(config, 'list_pin_history')).filter(x => x.source === 'forge' && !oldPaths.has(x.path));
         assert.equal(history.length, 1); assert.ok(history[0].exists);

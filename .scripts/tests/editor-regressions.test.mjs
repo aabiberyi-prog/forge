@@ -12,8 +12,8 @@ const compiled = transformSync(fs.readFileSync(new URL('../../src/window/Screens
     loader: 'jsx', format: 'cjs', target: 'es2022',
 }).code;
 
-function editor(shape) {
-    const state = ['select', [shape], null, shape.id, draw.DEFAULT_STYLE, 1, null, null];
+function editor(shape, tool = 'select') {
+    const state = [tool, [shape], null, shape.id, draw.DEFAULT_STYLE, 1, null, null];
     const canvas = { width: 500, height: 300, getBoundingClientRect: () => ({ left: 0, top: 0, width: 500, height: 300 }) };
     let index = 0, refIndex = 0;
     const React = {
@@ -24,7 +24,8 @@ function editor(shape) {
     };
     const modules = {
         react: { __esModule: true, default: React, ...React },
-        '@nextui-org/react': { Button: 'Button', Input: 'Input', Select: 'Select', SelectItem: 'SelectItem' },
+        'react-icons/lu': new Proxy({}, { get: (_, name) => String(name) }),
+        './style.css': {},
         'react-i18next': { useTranslation: () => ({ t: (key) => key }) },
         './draw': draw, './regions': regions,
     };
@@ -66,11 +67,11 @@ test('selected annotation is resized through the actual pointer handlers', () =>
 });
 
 test('font, arrow, and alphabetic step properties are reachable from controls', () => {
-    const { tree, state } = editor({ ...rectangle(), tool: 'step' });
     for (const [label, value, property] of [['font_style', 'bold', 'fontStyle'], ['arrow_style', 'double', 'arrowStyle'], ['step_kind', 'alpha', 'stepKind']]) {
+        const { tree, state } = editor({ ...rectangle(), tool: property === 'arrowStyle' ? 'arrow' : 'step' });
         const input = find(tree, (node) => node.props?.['aria-label'] === `screenshot.${label}`);
         assert.ok(input, label);
-        input.props.onSelectionChange(new Set([value]));
+        input.props.onChange({ target: { value } });
         assert.equal(state[1][0][property], value);
     }
     assert.equal(draw.stepLabel(26, 'alpha', 1), 'AA');
@@ -93,4 +94,42 @@ test('rotated hit testing and resizing preserve the opposite world-space corner'
     assert.ok(Math.abs(bounds.top - 50) < 0.001);
     assert.equal(bounds.width, 200);
     assert.equal(draw.hitShapeHandle(resized, 55, -45, 0.01), 'nw');
+});
+
+test('clicking existing text with the text tool edits it without creating an empty object', () => {
+    const text = { id: 'label', tool: 'text', x0: 10, y0: 10, text: 'Already written', fontSize: 20 };
+    const { tree, state } = editor(text, 'text');
+    const canvas = find(tree, node => node.type === 'canvas');
+    canvas.props.onPointerDown({ button: 0, pointerId: 1, clientX: 20, clientY: 20, preventDefault() {}, currentTarget: { focus() {}, setPointerCapture() {} } });
+    assert.equal(state[1].length, 1);
+    assert.equal(state[6].id, text.id);
+    assert.equal(state[6].text, 'Already written');
+});
+
+test('tool properties hide unrelated controls and text has an explicit edit action', () => {
+    const { tree } = editor({ ...rectangle(), tool: 'text', text: 'hello' });
+    assert.ok(find(tree, node => node.props?.['aria-label'] === 'screenshot.font_size'));
+    assert.equal(find(tree, node => node.props?.['aria-label'] === 'screenshot.arrow_style'), null);
+    assert.equal(find(tree, node => node.props?.['aria-label'] === 'screenshot.blur'), null);
+    assert.ok(find(tree, node => node.type === 'button' && node.props.children.includes('screenshot.edit_text')));
+});
+
+test('Escape clears an object selection before cancelling the editor', () => {
+    const { tree, state } = editor(rectangle());
+    tree.props.onKeyDown({ key: 'Escape', target: { tagName: 'CANVAS' }, stopPropagation() {}, preventDefault() {} });
+    assert.equal(state[3], null);
+});
+
+test('editor window leaves overlay state and centers only after sizing', async () => {
+    const source = fs.readFileSync(new URL('../../src/window/Screenshot/window.js', import.meta.url), 'utf8');
+    const code = transformSync(source, { loader: 'js', format: 'cjs' }).code;
+    const context = { module: { exports: {} }, require: () => ({ LogicalSize: class { constructor(width, height) { this.width = width; this.height = height; } } }) };
+    vm.runInNewContext(code, context);
+    const calls = [];
+    const window = new Proxy({}, { get: (_, method) => async value => { calls.push([method, value]); } });
+    await context.module.exports.openEditorWindow(window, 'Editor');
+    assert.equal(calls.find(([name]) => name === 'setAlwaysOnTop')[1], false);
+    assert.equal(calls.find(([name]) => name === 'setResizable')[1], true);
+    assert.equal(calls.find(([name]) => name === 'setDecorations')[1], true);
+    assert.ok(calls.findIndex(([name]) => name === 'center') > calls.findIndex(([name]) => name === 'setSize'));
 });

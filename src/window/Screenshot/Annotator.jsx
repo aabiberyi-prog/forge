@@ -1,6 +1,9 @@
-import { Button, Input, Select, SelectItem } from '@nextui-org/react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { LuMousePointer2, LuRectangleHorizontal, LuCircle, LuArrowUpRight, LuMinus, LuPencil, LuType,
+    LuMessageSquare, LuListOrdered, LuScanLine, LuHighlighter, LuFocus, LuZoomIn, LuCrop,
+    LuCopy, LuRotateCw, LuTrash2, LuMoveUp, LuMoveDown, LuSave, LuX, LuUndo2, LuPin } from 'react-icons/lu';
+import './style.css';
 import {
     DEFAULT_STYLE,
     TOOLS,
@@ -34,6 +37,12 @@ const LABELS = {
     crop: 'Crop',
 };
 
+const ICONS = { select: LuMousePointer2, rectangle: LuRectangleHorizontal, ellipse: LuCircle, arrow: LuArrowUpRight,
+    line: LuMinus, freehand: LuPencil, text: LuType, balloon: LuMessageSquare, step: LuListOrdered,
+    blur: LuScanLine, highlight: LuHighlighter, spotlight: LuFocus, magnify: LuZoomIn, crop: LuCrop };
+const TOOL_KEYS = { v: 'select', r: 'rectangle', e: 'ellipse', a: 'arrow', l: 'line', f: 'freehand',
+    t: 'text', o: 'balloon', n: 'step', b: 'blur', h: 'highlight', s: 'spotlight', m: 'magnify', c: 'crop' };
+
 export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }) {
     const { t } = useTranslation();
     const canvasRef = useRef(null);
@@ -51,6 +60,7 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
     const savingRef = useRef(false);
     const [saving, setSaving] = useState(false);
     const [loadError, setLoadError] = useState('');
+    const surfaceRef = useRef(null);
 
     const selected = useMemo(
         () => shapes.find((shape) => shape.id === selectedId) || null,
@@ -86,18 +96,62 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
         setStyle((current) => ({ ...current, ...patch }));
     };
 
+    const editText = (shape) => {
+        if (!shape || !['text', 'balloon'].includes(shape.tool)) return;
+        setTool('select');
+        setSelectedId(shape.id);
+        setEditing({ id: shape.id, text: shape.text || '' });
+    };
+
+    const finishText = (commit = true) => {
+        if (!editing) return;
+        const original = shapes.find(shape => shape.id === editing.id);
+        const text = commit ? editing.text : original?.text || '';
+        setShapes((current) => current.flatMap((shape) => shape.id !== editing.id ? [shape]
+            : text.trim() ? [{ ...shape, text }] : []));
+        if (!text.trim()) setSelectedId(null);
+        setEditing(null);
+        setTool('select');
+    };
+
+    const chooseTool = (name) => {
+        finishText();
+        setTool(name);
+        setSelectedId(null);
+        setDraft(null);
+    };
+
+    const deleteSelected = () => {
+        setShapes((current) => current.filter((shape) => shape.id !== selectedId));
+        setSelectedId(null);
+    };
+
+    const reorderSelected = (offset) => setShapes((current) => {
+        const index = current.findIndex((shape) => shape.id === selectedId);
+        if (index < 0 || index + offset < 0 || index + offset >= current.length) return current;
+        const next = current.slice();
+        const [item] = next.splice(index, 1);
+        next.splice(index + offset, 0, item);
+        return next;
+    });
+
     const commitDraft = (nextDraft) => {
         if (!nextDraft) return;
         if (nextDraft.tool === 'crop' && nextDraft.rect.width > 2 && nextDraft.rect.height > 2) {
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
-            redraw(shapes, null, null);
+            renderScene(ctx, imageRef.current, [], {});
             const cropped = ctx.getImageData(nextDraft.rect.left, nextDraft.rect.top, nextDraft.rect.width, nextDraft.rect.height);
             canvas.width = nextDraft.rect.width;
             canvas.height = nextDraft.rect.height;
             ctx.putImageData(cropped, 0, 0);
             imageRef.current.src = canvas.toDataURL('image/png');
-            setShapes([]);
+            const rect = nextDraft.rect;
+            setShapes((current) => current.filter((shape) => {
+                const bounds = shapeRect(shape);
+                return bounds.left + bounds.width > rect.left && bounds.top + bounds.height > rect.top
+                    && bounds.left < rect.left + rect.width && bounds.top < rect.top + rect.height;
+            }).map((shape) => moveShape(shape, -rect.left, -rect.top)));
             setDraft(null);
             setSelectedId(null);
             return;
@@ -125,13 +179,24 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
         event.currentTarget.focus();
         event.currentTarget.setPointerCapture(event.pointerId);
         const point = canvasPoint(event);
+        const hit = [...shapes].reverse().find((shape) => hitTestShape(shape, point.x, point.y));
+        if (hit && ['text', 'balloon'].includes(hit.tool) && tool === 'text' && !event.ctrlKey) {
+            event.preventDefault();
+            editText(hit);
+            return;
+        }
+        if (hit && tool !== 'select' && tool !== 'crop' && !event.ctrlKey) {
+            setTool('select');
+            setSelectedId(hit.id);
+            dragRef.current = { id: hit.id, original: hit, x: point.x, y: point.y };
+            return;
+        }
         if (tool === 'select') {
             const handle = selected && hitShapeHandle(selected, point.x, point.y);
             if (handle) {
                 dragRef.current = { id: selected.id, original: selected, handle, x: point.x, y: point.y };
                 return;
             }
-            const hit = [...shapes].reverse().find((shape) => hitTestShape(shape, point.x, point.y));
             setSelectedId(hit?.id || null);
             if (hit) dragRef.current = { id: hit.id, original: hit, x: point.x, y: point.y };
             return;
@@ -187,7 +252,10 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
 
     const onKeyDown = (event) => {
         event.stopPropagation();
-        if (isEditingTarget(event.target) || event.nativeEvent?.isComposing || savingRef.current) return;
+        if (event.nativeEvent?.isComposing || savingRef.current) return;
+        if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); void confirm(); return; }
+        if (isEditingTarget(event.target)) return;
+        if (event.target?.tagName === 'BUTTON' && ['Enter', ' '].includes(event.key)) return;
         if (editing) {
             if (event.key === 'Escape') setEditing(null);
             return;
@@ -240,7 +308,18 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
                 current.map((shape) => (shape.id === selectedId ? moveShape(shape, dx * step, dy * step) : shape))
             );
         }
-        if (event.key === 'Escape') onCancel();
+        if (event.key === 'Escape') {
+            if (draft) { setDraft(null); dragRef.current = null; }
+            else if (selectedId) setSelectedId(null);
+            else onCancel();
+        }
+        if (event.key === 'Enter' && selected && ['text', 'balloon'].includes(selected.tool)) {
+            event.preventDefault(); editText(selected); return;
+        }
+        if (event.key === 'Enter') { event.preventDefault(); void confirm(); return; }
+        if (!event.ctrlKey && !event.altKey && !event.metaKey && TOOL_KEYS[event.key.toLowerCase()]) {
+            event.preventDefault(); chooseTool(TOOL_KEYS[event.key.toLowerCase()]);
+        }
     };
 
     const confirm = async (retryPath = null) => {
@@ -263,195 +342,124 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
         }
     };
 
+    const activeTool = selected?.tool || tool;
+    const textTool = ['text', 'balloon', 'step'].includes(activeTool);
+    const strokeTool = ['rectangle', 'ellipse', 'arrow', 'line', 'freehand', 'balloon', 'step'].includes(activeTool);
+    const properties = [
+        ...(!['select', 'crop', 'blur', 'magnify'].includes(activeTool) ? [{ key: 'color', label: 'color', type: 'color' }] : []),
+        ...(strokeTool ? [
+            { key: 'strokeWidth', label: 'stroke', type: 'number', min: 1, max: 64 },
+            { key: 'strokeStyle', label: 'stroke_style', options: ['solid', 'dash', 'dot'].map(value => [value, t(`screenshot.${value}`)]) },
+        ] : []),
+        ...(textTool ? [
+            { key: 'fontSize', label: 'font_size', type: 'number', min: 8, max: 256 },
+            { key: 'fontFamily', label: 'font_family', type: 'text' },
+            { key: 'fontStyle', label: 'font_style', options: ['normal', 'bold', 'italic', 'bold italic'].map(value => [value, t(`screenshot.font_${value.replace(' ', '_')}`)]) },
+        ] : []),
+        ...(activeTool === 'arrow' ? [{ key: 'arrowStyle', label: 'arrow_style', options: ['single', 'double', 'none'].map(value => [value, t(`screenshot.arrow_${value}`)]) }] : []),
+        ...(activeTool === 'step' ? [
+            { key: 'stepKind', label: 'step_kind', options: [['number', '1, 2, 3'], ['alpha', 'A, B, C']] },
+            { key: 'stepStart', label: 'step_start', type: 'number', min: 1, max: 999 },
+        ] : []),
+        ...(activeTool === 'blur' ? [{ key: 'blurRadius', label: 'blur', type: 'number', min: 1, max: 64 }] : []),
+        ...(activeTool === 'magnify' ? [{ key: 'magnifyScale', label: 'magnify_scale', type: 'number', min: 1, max: 8, step: 0.25 }] : []),
+    ];
+
     return (
-        <div className='fixed inset-0 bg-black/70 flex flex-col items-center justify-center gap-2 p-3' onKeyDown={onKeyDown} tabIndex={0}>
-            {notice ? <div role='status' className='text-warning text-sm'>{notice}</div> : null}
-            {loadError ? <div role='alert' className='text-danger text-sm'>{loadError}</div> : null}
-            <img
-                ref={imageRef}
-                crossOrigin='anonymous'
-                src={imageSrc}
-                alt=''
-                className='hidden'
-                onError={() => { setReady(0); setLoadError(t('screenshot.load_failed')); }}
-                onLoad={(event) => {
-                    setLoadError('');
-                    const canvas = canvasRef.current;
-                    canvas.width = event.target.naturalWidth;
-                    canvas.height = event.target.naturalHeight;
-                    setReady((version) => version + 1);
-                }}
-            />
-            <canvas
-                ref={canvasRef}
-                tabIndex={0}
-                className='max-w-[90vw] max-h-[68vh] bg-black cursor-crosshair'
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={() => {
-                    if (dragRef.current) {
-                        const { id, original } = dragRef.current;
-                        setShapes((current) => current.map((shape) => shape.id === id ? original : shape));
-                    }
-                    dragRef.current = null;
-                    setDraft(null);
-                }}
-                onDoubleClick={(event) => {
-                    const point = canvasPoint(event);
-                    const hit = [...shapes].reverse().find((shape) => hitTestShape(shape, point.x, point.y));
-                    if (hit && (hit.tool === 'text' || hit.tool === 'balloon')) {
-                        setEditing({ id: hit.id, text: hit.text || '' });
-                    }
-                }}
-            />
-            {editing ? (
-                <textarea
-                    autoFocus
-                    className='absolute z-10 min-w-[180px] rounded bg-white text-black p-2 text-sm'
-                    style={(() => {
-                        const shape = shapes.find((item) => item.id === editing.id);
-                        const bounds = canvasRef.current?.getBoundingClientRect();
-                        if (!shape || !bounds) return {};
-                        const rect = shapeRect(shape);
-                        return { left: bounds.left + rect.left * bounds.width / canvasRef.current.width,
-                            top: bounds.top + rect.top * bounds.height / canvasRef.current.height };
-                    })()}
-                    value={editing.text}
-                    onChange={(event) => setEditing({ ...editing, text: event.target.value })}
-                    onKeyDown={(event) => event.stopPropagation()}
-                    onBlur={() => {
-                        setShapes((current) =>
-                            current.map((shape) => (shape.id === editing.id ? { ...shape, text: editing.text } : shape))
-                        );
-                        setEditing(null);
-                    }}
-                />
-            ) : null}
-            <div className='flex flex-wrap gap-1 justify-center max-w-[960px]'>
-                <Button size='sm' variant={tool === 'select' ? 'solid' : 'flat'} onPress={() => setTool('select')}>
-                    {t('screenshot.select')}
-                </Button>
-                {TOOLS.map((name) => (
-                    <Button
-                        key={name}
-                        size='sm'
-                        variant={tool === name ? 'solid' : 'flat'}
-                        color={tool === name ? 'primary' : 'default'}
-                        onPress={() => setTool(name)}
-                    >
-                        {t(`screenshot.tool_${name}`, { defaultValue: LABELS[name] })}
-                    </Button>
+        <div className='capture-editor' onKeyDown={onKeyDown} tabIndex={0}>
+            <div className='capture-tools' role='toolbar' aria-label={t('screenshot.tools')}>
+                {['select', ...TOOLS].map((name) => {
+                    const Icon = ICONS[name];
+                    const label = name === 'select' ? t('screenshot.select') : t(`screenshot.tool_${name}`, { defaultValue: LABELS[name] });
+                    const shortcut = Object.keys(TOOL_KEYS).find(key => TOOL_KEYS[key] === name)?.toUpperCase();
+                    return <button key={name} type='button' className='capture-tool' aria-label={label}
+                        aria-pressed={tool === name} title={`${label} (${shortcut})`} onClick={() => chooseTool(name)}>
+                        <Icon aria-hidden='true' /><span>{label}</span>
+                    </button>;
+                })}
+            </div>
+            <div className='capture-properties' role='group' aria-label={t('screenshot.properties')}>
+                <span className='capture-property-context'>{selected ? t('screenshot.selected_object') : t('screenshot.new_object')}</span>
+                {properties.map(({ key, label, options, type, min, max, step }) => (
+                    <label className='capture-field' key={key}>
+                        <span>{t(`screenshot.${label}`)}</span>
+                        {options ? <select aria-label={t(`screenshot.${label}`)} value={selected?.[key] ?? style[key] ?? ''}
+                            onChange={(event) => patchSelected({ [key]: event.target.value })}>
+                            {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                        </select> : <input type={type} aria-label={t(`screenshot.${label}`)} min={min} max={max} step={step}
+                            value={selected?.[key] ?? style[key] ?? ''} onChange={(event) => patchSelected({
+                                [key]: type === 'number' ? Math.min(max, Math.max(min, Number(event.target.value) || min)) : event.target.value,
+                            })} />}
+                    </label>
                 ))}
-                <Button size='sm' variant='flat' onPress={() => setShapes((current) => current.slice(0, -1))}>
-                    {t('screenshot.undo')}
-                </Button>
-                <Button size='sm' variant='light' onPress={onCancel}>
-                    {t('screenshot.cancel')}
-                </Button>
-                <Button size='sm' color='success' isDisabled={!ready} isLoading={saving} onPress={() => confirm()}>
-                    {pin ? t('screenshot.pin') : t('screenshot.save')}
-                </Button>
+                {!properties.length ? <span className='capture-hint'>{t('screenshot.select_hint')}</span> : null}
+                {selected && ['text', 'balloon'].includes(selected.tool) ? <button type='button' className='capture-action'
+                    onClick={() => editText(selected)}><LuType aria-hidden='true' />{t('screenshot.edit_text')}</button> : null}
             </div>
-            <div className='flex flex-wrap items-center gap-2 text-xs text-white/80'>
-                <input
-                    type='color'
-                    value={selected?.color || style.color}
-                    onChange={(event) => patchSelected({ color: event.target.value })}
-                    aria-label={t('screenshot.color')}
-                />
-                <Input
-                    size='sm'
-                    type='number'
-                    className='w-20'
-                    value={String(selected?.strokeWidth || style.strokeWidth)}
-                    onValueChange={(value) => patchSelected({ strokeWidth: Math.min(64, Math.max(1, Number(value) || 1)) })}
-                    aria-label={t('screenshot.stroke')}
-                />
-                <Select
-                    size='sm'
-                    className='w-28'
-                    selectedKeys={[selected?.strokeStyle || style.strokeStyle]}
-                    onSelectionChange={(keys) => patchSelected({ strokeStyle: Array.from(keys)[0] })}
-                    aria-label={t('screenshot.stroke_style')}
-                >
-                    <SelectItem key='solid'>{t('screenshot.solid')}</SelectItem>
-                    <SelectItem key='dash'>{t('screenshot.dash')}</SelectItem>
-                    <SelectItem key='dot'>{t('screenshot.dot')}</SelectItem>
-                </Select>
-                <Input
-                    size='sm'
-                    type='number'
-                    className='w-20'
-                    value={String(selected?.fontSize || style.fontSize)}
-                    onValueChange={(value) => patchSelected({ fontSize: Math.min(256, Math.max(8, Number(value) || 12)) })}
-                    aria-label={t('screenshot.font_size')}
-                />
-                <Input
-                    size='sm'
-                    className='w-28'
-                    value={selected?.fontFamily || style.fontFamily}
-                    onValueChange={(value) => patchSelected({ fontFamily: value })}
-                    aria-label={t('screenshot.font_family')}
-                />
-                <Select size='sm' className='w-32' aria-label={t('screenshot.font_style')}
-                    selectedKeys={[selected?.fontStyle || style.fontStyle]}
-                    onSelectionChange={(keys) => patchSelected({ fontStyle: Array.from(keys)[0] || 'normal' })}>
-                    {['normal', 'bold', 'italic', 'bold italic'].map((value) => <SelectItem key={value}>{t(`screenshot.font_${value.replace(' ', '_')}`)}</SelectItem>)}
-                </Select>
-                <Select size='sm' className='w-32' aria-label={t('screenshot.arrow_style')}
-                    selectedKeys={[selected?.arrowStyle || style.arrowStyle]}
-                    onSelectionChange={(keys) => patchSelected({ arrowStyle: Array.from(keys)[0] || 'single' })}>
-                    {['single', 'double', 'none'].map((value) => <SelectItem key={value}>{t(`screenshot.arrow_${value}`)}</SelectItem>)}
-                </Select>
-                <Select size='sm' className='w-28' aria-label={t('screenshot.step_kind')}
-                    selectedKeys={[selected?.stepKind || style.stepKind]}
-                    onSelectionChange={(keys) => patchSelected({ stepKind: Array.from(keys)[0] || 'number' })}>
-                    <SelectItem key='number'>1, 2, 3</SelectItem><SelectItem key='alpha'>A, B, C</SelectItem>
-                </Select>
-                <Input size='sm' type='number' className='w-20' min={1} aria-label={t('screenshot.step_start')}
-                    value={String(selected?.stepStart || style.stepStart)}
-                    onValueChange={(value) => patchSelected({ stepStart: Math.max(1, Math.floor(Number(value) || 1)) })} />
-                <Input size='sm' type='number' className='w-20' min={1} max={8} step={0.25} aria-label={t('screenshot.magnify_scale')}
-                    value={String(selected?.magnifyScale || style.magnifyScale)}
-                    onValueChange={(value) => patchSelected({ magnifyScale: Math.min(8, Math.max(1, Number(value) || 2)) })} />
-                <Input
-                    size='sm'
-                    type='number'
-                    className='w-20'
-                    value={String(selected?.blurRadius || style.blurRadius)}
-                    onValueChange={(value) => patchSelected({ blurRadius: Math.min(64, Math.max(1, Number(value) || 1)) })}
-                    aria-label={t('screenshot.blur')}
-                />
-                <Button
-                    size='sm'
-                    variant='flat'
-                    onPress={() => selected && setShapes((current) => [...current, duplicateShape(selected)])}
-                >
-                    {t('screenshot.duplicate')}
-                </Button>
-                <Button
-                    size='sm'
-                    variant='flat'
-                    onPress={() => patchSelected({ rotation: ((selected?.rotation || style.rotation || 0) + 15) % 360 })}
-                >
-                    {t('screenshot.rotate')}
-                </Button>
+            {notice ? <div role='status' className='capture-notice'>{notice}</div> : null}
+            {loadError ? <div role='alert' className='capture-error'>{loadError}</div> : null}
+            <div className='capture-workspace' ref={surfaceRef}>
+                <img ref={imageRef} crossOrigin='anonymous' src={imageSrc} alt='' hidden
+                    onError={() => { setReady(0); setLoadError(t('screenshot.load_failed')); }}
+                    onLoad={(event) => {
+                        setLoadError('');
+                        canvasRef.current.width = event.target.naturalWidth;
+                        canvasRef.current.height = event.target.naturalHeight;
+                        setReady((version) => version + 1);
+                    }} />
+                <canvas ref={canvasRef} tabIndex={0} className='capture-canvas' aria-label={t('screenshot.canvas')}
+                    onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+                    onPointerCancel={() => {
+                        if (dragRef.current) {
+                            const { id, original } = dragRef.current;
+                            setShapes((current) => current.map((shape) => shape.id === id ? original : shape));
+                        }
+                        dragRef.current = null; setDraft(null);
+                    }}
+                    onDoubleClick={(event) => {
+                        const point = canvasPoint(event);
+                        editText([...shapes].reverse().find((shape) => hitTestShape(shape, point.x, point.y)));
+                    }} />
+                {editing ? <textarea autoFocus className='capture-text-editor' aria-label={t('screenshot.edit_text')}
+                    style={(() => {
+                        const shape = shapes.find(item => item.id === editing.id);
+                        const bounds = canvasRef.current?.getBoundingClientRect();
+                        const parent = surfaceRef.current?.getBoundingClientRect();
+                        if (!shape || !bounds || !parent) return {};
+                        const rect = shapeRect(shape), scale = bounds.width / canvasRef.current.width;
+                        return { left: Math.max(0, bounds.left - parent.left + rect.left * scale + surfaceRef.current.scrollLeft),
+                            top: Math.max(0, bounds.top - parent.top + rect.top * scale + surfaceRef.current.scrollTop),
+                            fontSize: Math.max(14, (shape.fontSize || 20) * scale), fontFamily: shape.fontFamily || style.fontFamily };
+                    })()}
+                    value={editing.text} onChange={(event) => setEditing({ ...editing, text: event.target.value })}
+                    onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.nativeEvent?.isComposing) return;
+                        if (event.key === 'Escape') { event.preventDefault(); finishText(false); }
+                        if (event.ctrlKey && event.key === 'Enter') { event.preventDefault(); finishText(); }
+                        if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); void confirm(); }
+                    }} onBlur={() => finishText()} /> : null}
             </div>
-            {error ? (
-                <div className='text-danger text-xs flex items-center gap-2'>
-                    <span>
-                        {error.saved ? t('screenshot.saved') : t('screenshot.save_failed')}
-                        {error.copied ? ` · ${t('screenshot.copied')}` : ` · ${t('screenshot.copy_failed')}`}
-                        {error.error ? ` · ${error.error}` : ''}
-                    </span>
-                    {error.saved && !error.copied && error.path ? (
-                        <Button size='sm' variant='flat' isLoading={saving} onPress={() => confirm(error.path)}>
-                            {t('screenshot.retry_copy')}
-                        </Button>
-                    ) : null}
-                </div>
-            ) : null}
+            <div className='capture-object-actions' role='toolbar' aria-label={t('screenshot.object_actions')}>
+                <button type='button' title={t('screenshot.undo')} disabled={!shapes.length} onClick={() => { setShapes(current => current.slice(0, -1)); setSelectedId(null); }}><LuUndo2 />{t('screenshot.undo')}</button>
+                <button type='button' disabled={!selected} onClick={() => { if (selected) { const copy = duplicateShape(selected); setShapes(current => [...current, copy]); setSelectedId(copy.id); } }}><LuCopy />{t('screenshot.duplicate')}</button>
+                <button type='button' disabled={!selected} onClick={() => patchSelected({ rotation: ((selected?.rotation || 0) + 15) % 360 })}><LuRotateCw />{t('screenshot.rotate')}</button>
+                <button type='button' disabled={!selected} onClick={() => reorderSelected(1)}><LuMoveUp />{t('screenshot.layer_forward')}</button>
+                <button type='button' disabled={!selected} onClick={() => reorderSelected(-1)}><LuMoveDown />{t('screenshot.layer_backward')}</button>
+                <button type='button' disabled={!selected} onClick={deleteSelected}><LuTrash2 />{t('screenshot.delete_object')}</button>
+                <span className='capture-hint'>{t('screenshot.object_hint')}</span>
+            </div>
+            {error ? <div role='alert' className='capture-error'>
+                <span>{error.saved ? t('screenshot.saved') : t('screenshot.save_failed')} · {error.copied ? t('screenshot.copied') : t('screenshot.copy_failed')} · {error.error}</span>
+                {error.saved && !error.copied && error.path ? <button type='button' disabled={saving} onClick={() => confirm(error.path)}>{t('screenshot.retry_copy')}</button> : null}
+            </div> : null}
+            <footer className='capture-footer'>
+                <span className='capture-hint'>{t('screenshot.editor_hint')}</span>
+                <button type='button' className='capture-action' onClick={onCancel}><LuX />{t('screenshot.cancel')}</button>
+                <button type='button' className='capture-save' disabled={!ready || saving} onClick={() => confirm()}>
+                    {pin ? <LuPin /> : <LuSave />}{saving ? t('screenshot.saving') : pin ? t('screenshot.pin') : t('screenshot.save_copy')}
+                </button>
+            </footer>
         </div>
     );
 }

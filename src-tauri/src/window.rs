@@ -398,6 +398,14 @@ pub fn open_screenshot_window() {
 
 #[cfg(not(target_os = "macos"))]
 fn screenshot_window() -> WebviewWindow {
+    // A repeated capture request should focus the current edit without discarding it
+    // or turning its normal window back into a fullscreen, always-on-top overlay.
+    if let Some(window) = APP.get().unwrap().get_webview_window("screenshot") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return window;
+    }
     let (window, _exists) = build_window("screenshot", "Screenshot");
 
     window.set_skip_taskbar(true).unwrap();
