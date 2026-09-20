@@ -1,4 +1,3 @@
-import { unregister } from '@tauri-apps/plugin-global-shortcut';
 import toast, { Toaster } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { CardBody } from '@nextui-org/react';
@@ -80,11 +79,12 @@ function HotkeyField({ name, title, stored, persist, t, toastStyle, onChanged })
         setDraft(stored || '');
         previous.current = stored || '';
     }, [stored]);
+    useEffect(() => () => { invoke('end_shortcut_edit').catch(() => {}); }, []);
 
     const confirm = async () => {
         try {
             await invoke('register_shortcut_by_frontend', { name, shortcut: draft || '' });
-            persist(draft || '');
+            persist(draft || '', false);
             previous.current = draft || '';
             toast.success(
                 draft ? t('config.hotkey.success') : t('config.hotkey.disabled', { defaultValue: 'Hotkey disabled' }),
@@ -92,14 +92,6 @@ function HotkeyField({ name, title, stored, persist, t, toastStyle, onChanged })
             );
         } catch (error) {
             setDraft(previous.current);
-            persist(previous.current);
-            if (previous.current) {
-                try {
-                    await invoke('register_shortcut_by_frontend', { name, shortcut: previous.current });
-                } catch {
-                    /* keep previous if OS still holds it */
-                }
-            }
             toast.error(String(error), { style: toastStyle });
         }
         onChanged?.();
@@ -117,17 +109,15 @@ function HotkeyField({ name, title, stored, persist, t, toastStyle, onChanged })
                 onKeyDown={(event) => {
                     if (event.key === 'Escape') {
                         event.preventDefault();
+                        event.stopPropagation();
                         setDraft(previous.current);
-                        if (previous.current) {
-                            invoke('register_shortcut_by_frontend', { name, shortcut: previous.current }).catch(() => {});
-                        }
+                        invoke('end_shortcut_edit').catch((error) => toast.error(String(error), { style: toastStyle }));
                         return;
                     }
                     keyDown(event, setDraft);
                 }}
-                onFocus={() => {
-                    if (draft) unregister(draft).catch(() => {});
-                }}
+                onFocus={() => invoke('begin_shortcut_edit', { name }).catch((error) => toast.error(String(error), { style: toastStyle }))}
+                onBlur={() => invoke('end_shortcut_edit').catch((error) => toast.error(String(error), { style: toastStyle }))}
                 endContent={
                     <Button size='sm' variant='flat' onPress={confirm}>
                         {t('common.ok')}
@@ -139,14 +129,14 @@ function HotkeyField({ name, title, stored, persist, t, toastStyle, onChanged })
 }
 
 export default function Hotkey() {
-    const [selectionTranslate, setSelectionTranslate] = useConfig('hotkey_selection_translate', '');
-    const [inputTranslate, setInputTranslate] = useConfig('hotkey_input_translate', '');
-    const [ocrRecognize, setOcrRecognize] = useConfig('hotkey_ocr_recognize', '');
-    const [ocrTranslate, setOcrTranslate] = useConfig('hotkey_ocr_translate', '');
-    const [captureRegion, setCaptureRegion] = useConfig('hotkey_capture_region', 'Alt+1');
-    const [pinToScreen, setPinToScreen] = useConfig('hotkey_pin_to_screen', 'Alt+3');
-    const [screenRecording, setScreenRecording] = useConfig('hotkey_screen_recording', 'Alt+4');
-    const [scrollingCapture, setScrollingCapture] = useConfig('hotkey_scrolling_capture', 'Alt+2');
+    const [selectionTranslate, setSelectionTranslate] = useConfig('hotkey_selection_translate', '', { sync: false });
+    const [inputTranslate, setInputTranslate] = useConfig('hotkey_input_translate', '', { sync: false });
+    const [ocrRecognize, setOcrRecognize] = useConfig('hotkey_ocr_recognize', '', { sync: false });
+    const [ocrTranslate, setOcrTranslate] = useConfig('hotkey_ocr_translate', '', { sync: false });
+    const [captureRegion, setCaptureRegion] = useConfig('hotkey_capture_region', 'Alt+1', { sync: false });
+    const [pinToScreen, setPinToScreen] = useConfig('hotkey_pin_to_screen', 'Alt+3', { sync: false });
+    const [screenRecording, setScreenRecording] = useConfig('hotkey_screen_recording', 'Alt+4', { sync: false });
+    const [scrollingCapture, setScrollingCapture] = useConfig('hotkey_scrolling_capture', 'Alt+2', { sync: false });
     const { t } = useTranslation();
     const toastStyle = useToastStyle();
     const [registry, setRegistry] = useState([]);

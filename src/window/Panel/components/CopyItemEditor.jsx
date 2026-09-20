@@ -80,12 +80,12 @@ export default function CopyItemEditor({ open, item, onCancel, onSave }) {
     return (
         <Modal isOpen={open} onClose={onCancel} size='sm'>
             <ModalContent>
-                <ModalHeader>{item ? 'Edit clip' : 'New clip'}</ModalHeader>
+                <ModalHeader>{item ? t('panel.edit_clip') : t('panel.new_clip')}</ModalHeader>
                 <ModalBody>
-                    <Input size='sm' label='Title' value={title} onValueChange={setTitle} maxLength={120} />
+                    <Input size='sm' label={t('panel.title')} value={title} onValueChange={setTitle} maxLength={120} />
                     <Textarea
                         size='sm'
-                        label='Text'
+                        label={t('panel.text')}
                         value={text}
                         onValueChange={setText}
                         onPaste={(event) => {
@@ -111,7 +111,7 @@ export default function CopyItemEditor({ open, item, onCancel, onSave }) {
                         }}
                     />
                     <Button size='sm' variant='flat' onPress={() => fileInputRef.current?.click()}>
-                        Add images ({images.length}/{MAX_COPY_IMAGES})
+                        {t('panel.add_images')} ({images.length}/{MAX_COPY_IMAGES})
                     </Button>
                     {images.length > 0 ? (
                         <div className='flex flex-col gap-1'>
@@ -146,10 +146,10 @@ export default function CopyItemEditor({ open, item, onCancel, onSave }) {
                 </ModalBody>
                 <ModalFooter>
                     <Button size='sm' variant='light' onPress={onCancel}>
-                        Cancel
+                        {t('panel.cancel')}
                     </Button>
                     <Button size='sm' color='primary' isLoading={saving} onPress={save}>
-                        Save
+                        {t('panel.save')}
                     </Button>
                 </ModalFooter>
             </ModalContent>

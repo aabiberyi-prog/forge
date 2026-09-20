@@ -1,4 +1,4 @@
-import { normalizeRect } from './regions.js';
+import { normalizeRect, resizeRect, hitHandle } from './regions.js';
 
 export { normalizeRect };
 
@@ -27,6 +27,7 @@ export const DEFAULT_STYLE = {
     fontSize: 20,
     fontStyle: 'normal',
     arrowHead: true,
+    arrowStyle: 'single',
     blurRadius: 8,
     magnifyScale: 2,
     stepKind: 'number',
@@ -44,7 +45,13 @@ export function nextShapeId() {
 export function stepLabel(index, kind = 'number', start = 1) {
     const n = Math.max(0, start - 1 + index);
     if (kind === 'alpha') {
-        return String.fromCharCode(65 + (n % 26));
+        let value = n + 1, label = '';
+        while (value > 0) {
+            value -= 1;
+            label = String.fromCharCode(65 + value % 26) + label;
+            value = Math.floor(value / 26);
+        }
+        return label;
     }
     return String(start + index);
 }
@@ -52,7 +59,7 @@ export function stepLabel(index, kind = 'number', start = 1) {
 export function applyStroke(ctx, shape) {
     ctx.lineWidth = shape.strokeWidth || DEFAULT_STYLE.strokeWidth;
     ctx.strokeStyle = shape.color || DEFAULT_STYLE.color;
-    ctx.setLineDash(shape.strokeStyle === 'dash' ? [8, 6] : []);
+    ctx.setLineDash(shape.strokeStyle === 'dash' ? [8, 6] : shape.strokeStyle === 'dot' ? [2, 4] : []);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 }
@@ -67,17 +74,59 @@ export function drawArrowHead(ctx, x0, y0, x1, y1, size = 14) {
     ctx.stroke();
 }
 
-function shapeRect(shape) {
-    if (shape.rect) return shape.rect;
+export function shapeRect(shape) {
     if (shape.tool === 'freehand' && shape.points?.length) {
         const xs = shape.points.map((point) => point.x);
         const ys = shape.points.map((point) => point.y);
         return normalizeRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
     }
+    if (shape.tool === 'step') {
+        const radius = shape.stepRadius || 12;
+        return { left: shape.x0 - radius, top: shape.y0 - radius, width: radius * 2, height: radius * 2 };
+    }
+    if (shape.tool === 'text' && (!shape.rect?.width || !shape.rect?.height)) {
+        const font = shape.fontSize || 20;
+        const lines = (shape.text || '').split('\n');
+        return { left: shape.x0, top: shape.y0, width: Math.max(80, ...lines.map((line) => Array.from(line).length * font)), height: Math.max(1, lines.length) * font * 1.4 };
+    }
+    if (shape.rect) return shape.rect;
     if (shape.x0 != null && shape.x1 != null) {
         return normalizeRect(shape.x0, shape.y0, shape.x1, shape.y1);
     }
     return { left: shape.x0 || 0, top: shape.y0 || 0, width: 0, height: 0 };
+}
+
+function rotatePoint(x, y, rect, angle) {
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+    const radians = angle * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+    return { x: cx + (x - cx) * cos - (y - cy) * sin, y: cy + (x - cx) * sin + (y - cy) * cos };
+}
+
+export function hitShapeHandle(shape, x, y, size = 8) {
+    const rect = shapeRect(shape);
+    const point = rotatePoint(x, y, rect, -(shape.rotation || 0));
+    return hitHandle({ tool: 'rectangle', x0: rect.left, y0: rect.top, x1: rect.left + rect.width, y1: rect.top + rect.height }, point.x, point.y, size);
+}
+
+export function resizeShape(shape, handle, x, y) {
+    const before = shapeRect(shape);
+    const point = rotatePoint(x, y, before, -(shape.rotation || 0));
+    const after = resizeRect(before, handle, point.x, point.y);
+    const scaleX = after.width / (before.width || 1), scaleY = after.height / (before.height || 1);
+    const transform = (x, y) => ({ x: after.left + (x - before.left) * scaleX, y: after.top + (y - before.top) * scaleY });
+    const start = transform(shape.x0, shape.y0), end = transform(shape.x1 ?? shape.x0, shape.y1 ?? shape.y0);
+    let next = { ...shape, x0: start.x, y0: start.y, x1: end.x, y1: end.y, rect: after };
+    if (shape.points) next.points = shape.points.map((p) => transform(p.x, p.y));
+    if (shape.tailX != null) { const tail = transform(shape.tailX, shape.tailY); next.tailX = tail.x; next.tailY = tail.y; }
+    if (shape.tool === 'text') next.fontSize = Math.max(8, (shape.fontSize || 20) * scaleY);
+    if (shape.tool === 'step') next.stepRadius = Math.max(4, Math.min(after.width, after.height) / 2);
+    const center = rotatePoint(after.left + after.width / 2, after.top + after.height / 2, before, shape.rotation || 0);
+    return moveShape(next, center.x - (after.left + after.width / 2), center.y - (after.top + after.height / 2));
+}
+
+export function isEditingTarget(target) {
+    return Boolean(target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)
+        || target?.closest?.('[contenteditable="true"], [role="textbox"], [role="combobox"]'));
 }
 
 export function distanceToSegment(x, y, x0, y0, x1, y1) {
@@ -91,6 +140,7 @@ export function distanceToSegment(x, y, x0, y0, x1, y1) {
 
 export function hitTestShape(shape, x, y, tol = 8) {
     const rect = shapeRect(shape);
+    ({ x, y } = rotatePoint(x, y, rect, -(shape.rotation || 0)));
     if (shape.tool === 'line' || shape.tool === 'arrow') {
         return distanceToSegment(x, y, shape.x0, shape.y0, shape.x1, shape.y1) <= tol + (shape.strokeWidth || 3);
     }
@@ -104,12 +154,7 @@ export function hitTestShape(shape, x, y, tol = 8) {
         return false;
     }
     if (shape.tool === 'step') {
-        return Math.hypot(x - shape.x0, y - shape.y0) <= 14 + tol;
-    }
-    if (shape.tool === 'text') {
-        const width = Math.max(40, (shape.text || '').length * (shape.fontSize || 20) * 0.55);
-        const height = (shape.fontSize || 20) * 1.4;
-        return x >= shape.x0 - 4 && x <= shape.x0 + width && y >= shape.y0 - height && y <= shape.y0 + 8;
+        return Math.hypot(x - shape.x0, y - shape.y0) <= (shape.stepRadius || 12) + tol;
     }
     return (
         x >= rect.left - tol &&
@@ -188,6 +233,7 @@ function blurRect(ctx, image, rect, radius) {
     ctx.rect(left, top, width, height);
     ctx.clip();
     if (image) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.filter = `blur(${Math.max(1, radius)}px)`;
         ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.filter = 'none';
@@ -242,7 +288,7 @@ function paintBalloon(ctx, shape) {
 
 function wrapText(ctx, text, x, y, maxWidth) {
     const lines = String(text).split('\n');
-    const lineHeight = (parseInt(ctx.font, 10) || 16) * 1.25;
+    const lineHeight = (Number(ctx.font.match(/([\d.]+)px/)?.[1]) || 16) * 1.4;
     const drawn = [];
     for (const line of lines) {
         const words = line.split(' ');
@@ -294,8 +340,9 @@ export function paintShape(ctx, shape, image) {
             ctx.moveTo(shape.x0, shape.y0);
             ctx.lineTo(shape.x1, shape.y1);
             ctx.stroke();
-            if (shape.arrowHead !== false) {
+            if (shape.arrowHead !== false && shape.arrowStyle !== 'none') {
                 drawArrowHead(ctx, shape.x0, shape.y0, shape.x1, shape.y1, 8 + (shape.strokeWidth || 3));
+                if (shape.arrowStyle === 'double') drawArrowHead(ctx, shape.x1, shape.y1, shape.x0, shape.y0, 8 + (shape.strokeWidth || 3));
             }
             break;
         case 'freehand':
@@ -313,8 +360,8 @@ export function paintShape(ctx, shape, image) {
             ctx.fillStyle = shape.color || DEFAULT_STYLE.color;
             ctx.font = `${shape.fontStyle || 'normal'} ${shape.fontSize || 20}px ${shape.fontFamily || 'sans-serif'}`;
             ctx.textAlign = 'left';
-            ctx.textBaseline = 'alphabetic';
-            wrapText(ctx, shape.text || '', shape.x0, shape.y0, Math.max(80, rect.width || 240));
+            ctx.textBaseline = 'middle';
+            wrapText(ctx, shape.text || '', rect.left, rect.top + rect.height / 2, Math.max(80, rect.width));
             break;
         case 'balloon':
             paintBalloon(ctx, shape);
@@ -322,13 +369,13 @@ export function paintShape(ctx, shape, image) {
         case 'step': {
             ctx.beginPath();
             ctx.fillStyle = shape.color || DEFAULT_STYLE.color;
-            ctx.arc(shape.x0, shape.y0, 12, 0, Math.PI * 2);
+            ctx.arc(shape.x0, shape.y0, shape.stepRadius || 12, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = '#fff';
-            ctx.font = `12px ${shape.fontFamily || 'sans-serif'}`;
+            ctx.font = `${shape.stepRadius || 12}px ${shape.fontFamily || 'sans-serif'}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(String(shape.label || shape.step || 1), shape.x0, shape.y0);
+            ctx.fillText(stepLabel(shape.stepIndex || 0, shape.stepKind, shape.stepStart), shape.x0, shape.y0);
             break;
         }
         case 'blur':
@@ -337,11 +384,15 @@ export function paintShape(ctx, shape, image) {
         case 'spotlight':
             if (image) {
                 ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.fillStyle = 'rgba(0,0,0,0.55)';
                 ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.restore();
+                ctx.save();
                 ctx.beginPath();
                 ctx.ellipse(cx, cy, Math.max(rect.width / 2, 1), Math.max(rect.height / 2, 1), 0, 0, Math.PI * 2);
                 ctx.clip();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height);
                 ctx.restore();
             }
@@ -353,6 +404,7 @@ export function paintShape(ctx, shape, image) {
             ctx.beginPath();
             ctx.ellipse(cx, cy, Math.max(rect.width / 2, 1), Math.max(rect.height / 2, 1), 0, 0, Math.PI * 2);
             ctx.clip();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.drawImage(
                 image,
                 0,
@@ -391,19 +443,35 @@ export function renderScene(ctx, image, shapes, { draft, selectedId } = {}) {
     if (image) {
         ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height);
     }
-    for (const shape of shapes) {
-        paintShape(ctx, shape, image);
-        if (shape.id === selectedId) {
-            const rect = shapeRect(shape);
-            ctx.save();
-            ctx.strokeStyle = '#38bdf8';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 3]);
-            ctx.strokeRect(rect.left - 2, rect.top - 2, rect.width + 4, rect.height + 4);
-            ctx.restore();
+    for (const shape of [...shapes, ...(draft ? [draft] : [])]) {
+        let source = image;
+        if (['blur', 'spotlight', 'magnify'].includes(shape.tool) && ctx.canvas.ownerDocument) {
+            // Effects sample the current composition, preserving earlier redactions/annotations.
+            source = ctx.canvas.ownerDocument.createElement('canvas');
+            source.width = ctx.canvas.width;
+            source.height = ctx.canvas.height;
+            source.getContext('2d').drawImage(ctx.canvas, 0, 0);
         }
+        paintShape(ctx, shape, source);
     }
-    if (draft) paintShape(ctx, draft, image);
+    const selected = shapes.find((shape) => shape.id === selectedId);
+    if (selected) {
+        const rect = shapeRect(selected);
+        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate((selected.rotation || 0) * Math.PI / 180);
+        ctx.translate(-cx, -cy);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.fillStyle = '#38bdf8';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+        for (const [x, y] of [[0, 0], [0.5, 0], [1, 0], [1, 0.5], [1, 1], [0.5, 1], [0, 1], [0, 0.5]]) {
+            ctx.fillRect(rect.left + x * rect.width - 4, rect.top + y * rect.height - 4, 8, 8);
+        }
+        ctx.restore();
+    }
 }
 
 export function createDraft(tool, point, style = DEFAULT_STYLE) {

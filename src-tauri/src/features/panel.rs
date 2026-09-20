@@ -78,7 +78,7 @@ fn validate_window_state(window: WindowState) -> Result<WindowState, String> {
     Ok(window)
 }
 
-fn apply_settings_to_window(window: &WebviewWindow, settings: &PanelSettings) -> Result<(), String> {
+pub(crate) fn apply_settings_to_window(window: &WebviewWindow, settings: &PanelSettings) -> Result<(), String> {
     window
         .set_always_on_top(settings.always_on_top)
         .map_err(|error| error.to_string())?;

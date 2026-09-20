@@ -14,7 +14,7 @@ import TodoInput from './components/TodoInput';
 import TodoList from './components/TodoList';
 import TodoStats from './components/TodoStats';
 import { sortByOrder } from './copy';
-import { filterHistory, paginate, statusCounts } from './history';
+import { eventTime, timestampMs, filterHistory, paginate, statusCounts } from './history';
 import './style.css';
 
 const appWindow = getCurrentWebviewWindow();
@@ -29,20 +29,12 @@ const defaultSettings = {
     schemaVersion: 1,
 };
 
-function isHistoryTask(task) {
-    return Boolean(task.done || task.archivedAt || task.deletedAt);
-}
-
 function upsertById(items, item) {
     return [...items.filter((current) => current.id !== item.id), item];
 }
 
 function sortHistory(tasks) {
-    return [...tasks].sort((a, b) => {
-        const aTime = a.deletedAt || a.archivedAt || a.completedAt || a.updatedAt || '';
-        const bTime = b.deletedAt || b.archivedAt || b.completedAt || b.updatedAt || '';
-        return String(bTime).localeCompare(String(aTime));
-    });
+    return [...tasks].sort((a, b) => (timestampMs(eventTime(b)) || 0) - (timestampMs(eventTime(a)) || 0));
 }
 
 function withTimeout(promise, timeoutMs) {
@@ -158,6 +150,20 @@ export default function Panel() {
 
     const completedTodos = useMemo(() => todos.filter((todo) => todo.done).length, [todos]);
 
+    const perform = async (action, rethrow = false) => {
+        try {
+            const result = await action();
+            setActionError('');
+            return result;
+        } catch (error) {
+            const text = error?.message || String(error);
+            setActionError(text);
+            showNotice(text, 'error');
+            if (rethrow) throw error;
+            return undefined;
+        }
+    };
+
     const patchSettings = async (patch) => {
         const next = await invoke('set_panel_settings', { patch });
         setSettings({ ...defaultSettings, ...next });
@@ -176,37 +182,24 @@ export default function Panel() {
     };
 
     const handleToggleDone = async (id, done) => {
-        const task = await invoke('update_task', { patch: { id, done } });
-        setTodos((current) => sortByOrder(current.map((item) => (item.id === id ? task : item))));
-        setHistory((current) => {
-            if (!isHistoryTask(task)) return current.filter((item) => item.id !== task.id);
-            return sortHistory(upsertById(current, task));
-        });
+        await invoke('update_task', { patch: { id, done } });
+        await reload();
     };
 
     const handleEdit = async (id, title) => {
-        const task = await invoke('update_task', { patch: { id, title } });
-        setTodos((current) => sortByOrder(current.map((item) => (item.id === id ? task : item))));
-        setHistory((current) => {
-            if (!isHistoryTask(task)) return current.filter((item) => item.id !== task.id);
-            return sortHistory(upsertById(current, task));
-        });
+        await invoke('update_task', { patch: { id, title } });
+        await reload();
     };
 
     const handleRestore = async (id) => {
-        const task = await invoke('restore_task', { id });
-        setTodos((current) => sortByOrder(upsertById(current.filter((item) => item.id !== task.id), task)));
-        setHistory((current) => {
-            if (!isHistoryTask(task)) return current.filter((item) => item.id !== task.id);
-            return sortHistory(upsertById(current, task));
-        });
+        await invoke('restore_task', { id });
         setView('active');
+        await reload();
     };
 
     const handleDelete = async (id) => {
-        const task = await invoke('delete_task', { id });
-        setTodos((current) => current.filter((todo) => todo.id !== id));
-        setHistory((current) => sortHistory(upsertById(current, task)));
+        await invoke('delete_task', { id });
+        await reload();
     };
 
     const handleReorder = async (ids) => {
@@ -314,8 +307,8 @@ export default function Panel() {
         >
             <TitleBar
                 settings={settings}
-                onPatchSettings={patchSettings}
-                onClose={() => invoke('hide_panel_window')}
+                onPatchSettings={(patch) => perform(() => patchSettings(patch))}
+                onClose={() => perform(() => invoke('hide_panel_window'))}
             />
             <div className='forge-panel-body'>
                 <div className={`forge-panel-notice ${noticeKind === 'error' ? 'is-error' : noticeKind === 'warn' ? 'is-warn' : ''}`}>
@@ -332,7 +325,7 @@ export default function Panel() {
                 ) : null}
                 <TodoInput onAddTodo={handleAddTodo} error={actionError} />
                 <div className='flex items-center gap-2 text-xs opacity-70'>
-                    <span>Opacity</span>
+                    <span>{t('panel.opacity')}</span>
                     <Slider
                         size='sm'
                         minValue={0.05}
@@ -346,25 +339,25 @@ export default function Panel() {
                         }}
                         onChangeEnd={(value) => {
                             const opacity = Array.isArray(value) ? value[0] : value;
-                            patchSettings({ opacity });
+                            perform(() => patchSettings({ opacity }));
                         }}
                         className='flex-1'
                     />
                 </div>
-                <TodoStats total={todos.length} completed={completedTodos} onClearCompleted={handleClearCompleted} />
+                <TodoStats total={todos.length} completed={completedTodos} onClearCompleted={() => perform(handleClearCompleted)} />
                 <Tabs size='sm' selectedKey={view} onSelectionChange={setView}>
-                    <Tab key='active' title={`Now ${todos.length}`} />
-                    <Tab key='history' title={`History ${history.length}`} />
-                    <Tab key='copy' title={`Clips ${copyItems.length}`} />
+                    <Tab key='active' title={`${t('panel.active')} ${todos.length}`} />
+                    <Tab key='history' title={`${t('panel.history')} ${history.length}`} />
+                    <Tab key='copy' title={`${t('panel.clips')} ${copyItems.length}`} />
                 </Tabs>
                 <div className='forge-panel-list'>
                     {view === 'active' && (
                         <TodoList
                             todos={todos}
-                            onToggleDone={handleToggleDone}
-                            onDelete={handleDelete}
-                            onEdit={handleEdit}
-                            onReorder={handleReorder}
+                            onToggleDone={(id, done) => perform(() => handleToggleDone(id, done))}
+                            onDelete={(id) => perform(() => handleDelete(id))}
+                            onEdit={(id, title) => perform(() => handleEdit(id, title), true)}
+                            onReorder={(ids) => perform(() => handleReorder(ids))}
                         />
                     )}
                     {view === 'history' && (
@@ -424,7 +417,7 @@ export default function Panel() {
                                 emptyLabel={
                                     loadState === 'error' ? t('panel.load_failed') : t('panel.history_empty')
                                 }
-                                onRestore={handleRestore}
+                                onRestore={(id) => perform(() => handleRestore(id))}
                             />
                             {historyPageView.pageCount > 1 ? (
                                 <div className='flex items-center justify-between mt-2 text-xs'>
@@ -458,22 +451,22 @@ export default function Panel() {
                                 setEditingCopyItem(null);
                                 setCopyEditorOpen(true);
                             }}
-                            onCopy={handleCopyItem}
-                            onEdit={async (id) => {
+                            onCopy={(id) => perform(() => handleCopyItem(id))}
+                            onEdit={(id) => perform(async () => {
                                 setEditingCopyItem(await invoke('get_copy_item', { id }));
                                 setCopyEditorOpen(true);
-                            }}
-                            onDelete={async (id) => {
+                            })}
+                            onDelete={(id) => perform(async () => {
                                 await invoke('delete_copy_item', { id });
                                 setCopyItems((current) => current.filter((item) => item.id !== id));
-                            }}
-                            onReorder={async (ids) => {
+                            })}
+                            onReorder={(ids) => perform(async () => {
                                 const nextItems = sortByOrder(
                                     ids.map((id, order) => ({ ...copyItems.find((item) => item.id === id), order })),
                                 );
                                 await invoke('reorder_copy_items', { ids });
                                 setCopyItems(nextItems);
-                            }}
+                            })}
                         />
                     )}
                 </div>
@@ -485,7 +478,7 @@ export default function Panel() {
                     setCopyEditorOpen(false);
                     setEditingCopyItem(null);
                 }}
-                onSave={handleSaveCopyItem}
+                onSave={(input) => perform(() => handleSaveCopyItem(input), true)}
             />
         </div>
     );

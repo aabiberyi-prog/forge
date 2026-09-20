@@ -1,65 +1,46 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { resolveCases, assertReleaseReady } from '../acceptance.mjs';
 
 const ledger = JSON.parse(readFileSync(new URL('../../docs/ACCEPTANCE.json', import.meta.url), 'utf8'));
 const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const release = readFileSync(new URL('../../.github/workflows/windows-release.yml', import.meta.url), 'utf8');
-const tauri = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
 
-function counts(cases) {
-    return cases.reduce(
-        (acc, item) => {
-            acc[item.status] = (acc[item.status] || 0) + 1;
-            return acc;
-        },
-        { pass: 0, skip: 0, blocked: 0 }
-    );
-}
-
-test('acceptance ledger never counts skip or blocked as pass', () => {
-    assert.equal(ledger.productVersion, tauri.version);
-    assert.equal(ledger.identifier, tauri.identifier);
-    for (const item of ledger.cases) {
-        assert.ok(['pass', 'skip', 'blocked'].includes(item.status), item.id);
-        assert.notEqual(item.status, 'failed');
-    }
-    const requiredUnit = ledger.cases.filter((item) => item.required && item.layer === 'unit');
-    assert.ok(requiredUnit.length >= 20, 'need a meaningful unit gate');
-    for (const item of requiredUnit) {
-        assert.equal(item.status, 'pass', item.id);
-    }
-    const requiredDesktop = ledger.cases.filter((item) => item.required && item.layer === 'desktop');
-    for (const item of requiredDesktop) {
-        assert.notEqual(item.status, 'pass', `${item.id} cannot pass without an isolated candidate`);
-        assert.equal(item.status, 'blocked', item.id);
-    }
-    const tally = counts(ledger.cases);
-    assert.equal(tally.pass + tally.skip + tally.blocked, ledger.cases.length);
-    assert.ok(tally.skip >= 1, 'OS01 or unselected groups must stay skip');
-    assert.ok(tally.blocked >= 1, 'unsigned desktop cases stay blocked');
-    assert.notEqual(tally.pass, ledger.cases.length);
+test('acceptance derives pass/fail/not_run from executed results', () => {
+    const contract = { cases: [{ id: 'check', layer: 'unit', required: true, evidence: ['first', 'second'] }] };
+    assert.equal(resolveCases(contract, [])[0].status, 'not_run');
+    assert.equal(resolveCases(contract, [{ name: 'first', status: 'pass' }, { name: 'second', status: 'skip' }])[0].status, 'not_run');
+    assert.equal(resolveCases(contract, [{ name: 'first', status: 'fail' }])[0].status, 'fail');
+    assert.equal(resolveCases(contract, [{ name: 'first', status: 'pass' }, { name: 'module::second', status: 'pass' }])[0].status, 'pass');
+    assert.ok(ledger.cases.filter((item) => item.layer === 'unit' && item.required).every((item) => item.status === 'pending'));
 });
 
-test('CI runs regression tests and does not publish', () => {
-    assert.match(ci, /pnpm test/);
-    assert.match(ci, /cargo test --manifest-path src-tauri\/Cargo\.toml/);
+test('release acceptance rejects missing desktop evidence and source mismatch', () => {
+    const identity = { head: 'a'.repeat(40), fingerprint: 'b'.repeat(64), dirty: false };
+    const report = { source: identity, cases: [{ id: 'desktop', required: true, layer: 'desktop', status: 'blocked' }] };
+    assert.throws(() => assertReleaseReady(report, identity), /incomplete/);
+    report.cases[0].status = 'pass';
+    assert.throws(() => assertReleaseReady(report, identity), /evidence/);
+    report.cases[0].evidence = 'native-run'; report.cases[0].candidateSha256 = 'c'.repeat(64);
+    assert.throws(() => assertReleaseReady(report, identity), /artifact/);
+    report.candidate = { path: 'candidate.exe', sha256: 'c'.repeat(64), sourceFingerprint: identity.fingerprint };
+    assertReleaseReady(report, identity);
+    assert.throws(() => assertReleaseReady(report, { ...identity, fingerprint: 'd'.repeat(64) }), /source/);
+});
+
+test('CI records execution evidence and publication requires native acceptance', () => {
+    assert.match(ci, /pnpm verify:ci/);
     assert.doesNotMatch(ci, /action-gh-release/);
-    assert.doesNotMatch(ci, /Pylogmon\.pot/);
     assert.match(release, /needs: verify/);
+    assert.match(release, /check-release-acceptance.mjs/);
 });
 
-test('candidate identity is this git HEAD and is not a live install path', () => {
-    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-    const branch = (
-        process.env.GITHUB_HEAD_REF ||
-        process.env.GITHUB_REF_NAME ||
-        execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim()
-    ).trim();
-    assert.match(sha, /^[0-9a-f]{40}$/);
-    assert.doesNotMatch(sha, /Pot Forge/i);
-    if (branch) {
-        assert.doesNotMatch(branch, /Pot Forge/i);
-    }
+test('review build has an independent identity and no updater endpoint', () => {
+    const main = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+    const review = JSON.parse(readFileSync(new URL('../../src-tauri/tauri.review.conf.json', import.meta.url), 'utf8'));
+    assert.notEqual(review.identifier, main.identifier);
+    assert.notEqual(review.productName, main.productName);
+    assert.deepEqual(review.plugins.updater.endpoints, []);
+    assert.equal(review.bundle.createUpdaterArtifacts, false);
 });

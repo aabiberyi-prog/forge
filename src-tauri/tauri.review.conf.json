@@ -1,0 +1,15 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Pot Forge Review",
+    "mainBinaryName": "Pot Forge Review",
+    "identifier": "com.aabiber.pot-forge.review",
+    "plugins": { "updater": { "endpoints": [] } },
+    "bundle": {
+        "createUpdaterArtifacts": false,
+        "windows": {
+            "nsis": {
+                "startMenuFolder": "Pot Forge Review"
+            }
+        }
+    }
+}

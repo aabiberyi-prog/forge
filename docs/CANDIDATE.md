@@ -1,4 +1,4 @@
-# Forge repair candidate
+# Forge repair candidate — historical record
 
 This is the packaging identity for the 2026-09-19 selected-scope repair stack. It is **not** authorization to tag, publish, or install over `D:\Pot Forge`.
 
@@ -32,13 +32,17 @@ Do not treat the previously installed 3.0.8 at `D:\Pot Forge` (`8ccd8f845`, exe 
 
 The candidate was **not** launched (same identifier would hit the live single-instance mutex and live profile).
 
-## Isolated verify (when an NSIS of this SHA exists)
+## Current isolated review build
 
-1. Do **not** use `D:\Pot Forge` or `%APPDATA%\com.aabiber.pot-forge`.
-2. Install per-machine to a disposable directory, e.g. `%TEMP%\Forge-candidate`.
-3. Set `FORGE_BACKUP_PROFILE_DIR` to a temp folder; keep official Pot and Desktop ToDo hashes unchanged.
-4. Run unit tests already in CI, then desktop cases in `docs/ACCEPTANCE.json` layer `desktop`.
-5. Rollback: uninstall the candidate, restore the previous installer if needed, confirm the isolated profile zip still extracts.
+The hashes above describe the earlier `db7926625` candidate, not the subsequent review fixes.
+
+Build the current review executable using `pnpm build:review --debug`, with `CARGO_TARGET_DIR` set to a local build directory such as `C:\cargo-target\forge-review`.
+
+`src-tauri/tauri.review.conf.json` defines product/binary `Pot Forge Review` and identifier `com.aabiber.pot-forge.review`. Settings, SQLite, cache, backups, credentials, and single-instance identity are separate from the installed app. New review profiles have empty hotkeys, HTTP port 60829, a private capture directory, disabled updater endpoints, and no shared selection-helper lifecycle.
+
+A temporary installation directory alone does **not** isolate data. `FORGE_BACKUP_PROFILE_DIR` is not an isolation mechanism and is no longer used. Do not copy real configuration or credentials into the review profile; start with fixtures. Native clipboard and explicitly enabled hotkeys remain system-wide.
+
+Run `pnpm verify` and retain its source fingerprint/results before native acceptance. Bind native evidence to the exact tested executable/installer checksum. This coding task builds but does not launch, install, or migrate data into either application.
 
 Signing uses `TAURI_SIGNING_PRIVATE_KEY` (Tauri 2). Do not run `windows-release.yml` publish steps without a separate tag/release yes.
 

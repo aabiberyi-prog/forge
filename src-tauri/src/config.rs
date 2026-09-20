@@ -8,6 +8,10 @@ use tauri_plugin_store::{Store, StoreBuilder};
 
 pub struct StoreWrapper(pub Mutex<Arc<Store<Wry>>>);
 
+pub fn is_review_profile() -> bool {
+    APP.get().is_some_and(|app| app.config().identifier == "com.aabiber.pot-forge.review")
+}
+
 pub fn init_config(app: &mut tauri::App) {
     let config_path = config_dir().unwrap();
     let config_path = config_path.join(app.config().identifier.clone());
@@ -26,6 +30,16 @@ pub fn init_config(app: &mut tauri::App) {
         }
     }
     app.manage(StoreWrapper(Mutex::new(store)));
+    if is_review_profile() {
+        for key in ["hotkey_selection_translate", "hotkey_input_translate", "hotkey_ocr_recognize", "hotkey_ocr_translate",
+            "hotkey_capture_region", "hotkey_pin_to_screen", "hotkey_screen_recording", "hotkey_scrolling_capture"] {
+            if get(key).is_none() { set(key, ""); }
+        }
+        if get("server_port").is_none() { set("server_port", 60829); }
+        if get("capture_save_dir").is_none() {
+            if let Ok(cache) = app.path().app_cache_dir() { set("capture_save_dir", cache.join("captures").to_string_lossy().to_string()); }
+        }
+    }
     let _ = check_service_available();
 }
 

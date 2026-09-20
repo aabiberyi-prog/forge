@@ -22,7 +22,6 @@ fn configured(name: &str, fallback: &str) -> String {
     }
     get(name)
         .and_then(|value| value.as_str().map(str::to_owned))
-        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| fallback.to_string())
 }
 
@@ -124,18 +123,20 @@ fn conflict_error(bindings: &[HotkeyStatus], candidate: &HotkeyStatus) -> Option
     })
 }
 
-#[allow(dead_code)]
 pub fn register_implemented() -> Vec<HotkeyStatus> {
-    let mut result = planned_bindings();
+    register_bindings(planned_bindings(), register_shortcut)
+}
+
+fn register_bindings(mut result: Vec<HotkeyStatus>, mut register: impl FnMut(&str) -> Result<(), String>) -> Vec<HotkeyStatus> {
     for index in 0..result.len() {
-        if !result[index].implemented {
+        if !result[index].implemented || result[index].shortcut.is_empty() {
             continue;
         }
         if let Some(error) = conflict_error(&result, &result[index]) {
             result[index].error = Some(error);
             continue;
         }
-        match register_shortcut(&result[index].id) {
+        match register(&result[index].id) {
             Ok(()) => {
                 result[index].registered = true;
                 result[index].error = None;
@@ -194,6 +195,17 @@ pub fn list_hotkey_registry() -> Vec<HotkeyStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_registration_continues_after_one_binding_fails() {
+        let mut bindings = planned_bindings();
+        for (index, item) in bindings.iter_mut().enumerate() { item.implemented = true; item.shortcut = format!("Alt+{}", index + 1); }
+        let mut calls = 0;
+        let result = register_bindings(bindings, |_| { calls += 1; if calls == 1 { Err("occupied".into()) } else { Ok(()) } });
+        assert_eq!(calls, 8);
+        assert!(!result[0].registered);
+        assert!(result[1..].iter().all(|item| item.registered));
+    }
 
     #[test]
     fn duplicate_shortcuts_are_conflicts() {

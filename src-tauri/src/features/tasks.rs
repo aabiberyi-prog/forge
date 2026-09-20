@@ -42,6 +42,19 @@ pub struct TasksFile {
     pub tasks: Vec<Task>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskEvent {
+    pub event: String,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryTask {
+    #[serde(flatten)]
+    pub task: Task,
+    pub events: Vec<TaskEvent>,
+}
+
 fn load_json_tasks(app: &AppHandle) -> Result<Vec<Task>, String> {
     let path = app_data_dir(app)?.join(TASKS_FILE);
     Ok(read_json::<TasksFile>(&path)?
@@ -184,11 +197,37 @@ fn upsert_task(conn: &rusqlite::Connection, task: &Task) -> Result<(), String> {
 
 fn insert_event(conn: &rusqlite::Connection, task_id: &str, event: &str, at: &str) -> Result<(), String> {
     conn.execute(
-        "INSERT INTO task_events(task_id, event, at) VALUES(?1,?2,?3)",
+        "INSERT INTO task_events(task_id, event, at) SELECT ?1,?2,?3
+         WHERE NOT EXISTS(SELECT 1 FROM task_events WHERE task_id=?1 AND event=?2 AND at=?3)",
         params![task_id, event, at],
     )
     .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+pub(crate) fn preserve_task_events(conn: &rusqlite::Connection, task: &Task) -> Result<(), String> {
+    for (event, at) in [("completed", &task.completed_at), ("archived", &task.archived_at), ("deleted", &task.deleted_at)] {
+        if let Some(at) = at { insert_event(conn, &task.id, event, at)?; }
+    }
+    Ok(())
+}
+
+pub(crate) fn history_tasks_on(conn: &rusqlite::Connection) -> Result<Vec<HistoryTask>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT id,title,done,order_index,created_at,updated_at,completed_at,archived_at,deleted_at FROM tasks t
+         WHERE done=1 OR archived_at IS NOT NULL OR deleted_at IS NOT NULL
+         OR EXISTS(SELECT 1 FROM task_events e WHERE e.task_id=t.id)"
+    ).map_err(|e| e.to_string())?;
+    let tasks = stmt.query_map([], task_from_row).map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let mut history = Vec::new();
+    for task in tasks {
+        let mut stmt = conn.prepare("SELECT event,at FROM task_events WHERE task_id=?1 ORDER BY CAST(at AS INTEGER) DESC,id DESC").map_err(|e| e.to_string())?;
+        let events = stmt.query_map([&task.id], |row| Ok(TaskEvent { event: row.get(0)?, at: row.get(1)? }))
+            .map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        history.push(HistoryTask { task, events });
+    }
+    Ok(history)
 }
 
 fn max_active_order(conn: &rusqlite::Connection) -> Result<i32, String> {
@@ -211,25 +250,29 @@ pub fn title_matches(title: &str, query: &str) -> bool {
 }
 
 pub fn restore_task_on(conn: &rusqlite::Connection, id: &str) -> Result<Task, String> {
-    let mut task = get_task(conn, id)?.ok_or_else(|| format!("task not found: {id}"))?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut task = get_task(&tx, id)?.ok_or_else(|| format!("task not found: {id}"))?;
     if is_active_task(&task) && !task.done {
         return Ok(task);
     }
     let now = timestamp();
-    insert_event(conn, &task.id, "restored", &now)?;
+    preserve_task_events(&tx, &task)?;
+    insert_event(&tx, &task.id, "restored", &now)?;
     if !is_active_task(&task) {
-        task.order = max_active_order(conn)? + 1;
+        task.order = max_active_order(&tx)? + 1;
     }
     task.done = false;
+    task.completed_at = None;
     task.archived_at = None;
     task.deleted_at = None;
     task.updated_at = now;
-    upsert_task(conn, &task)?;
+    upsert_task(&tx, &task)?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(task)
 }
 
 fn next_id() -> String {
-    format!("task-{}", timestamp())
+    format!("task-{}", super::json_store::unique_stamp())
 }
 
 fn validate_title(title: &str) -> Result<String, String> {
@@ -244,10 +287,6 @@ fn is_active_task(task: &Task) -> bool {
     task.archived_at.is_none() && task.deleted_at.is_none()
 }
 
-fn is_history_task(task: &Task) -> bool {
-    task.done || task.archived_at.is_some() || task.deleted_at.is_some()
-}
-
 #[tauri::command]
 pub fn list_tasks(app: AppHandle) -> Result<Vec<Task>, String> {
     let mut tasks: Vec<Task> = load_tasks(&app)?
@@ -259,17 +298,16 @@ pub fn list_tasks(app: AppHandle) -> Result<Vec<Task>, String> {
 }
 
 #[tauri::command]
-pub fn list_history_tasks(app: AppHandle) -> Result<Vec<Task>, String> {
-    let mut tasks: Vec<Task> = load_tasks(&app)?
-        .into_iter()
-        .filter(is_history_task)
-        .collect();
-    tasks.sort_by_key(|task| task.order);
-    Ok(tasks)
+pub fn list_history_tasks(app: AppHandle) -> Result<Vec<HistoryTask>, String> {
+    migrate_json_tasks(&app)?;
+    let conn = db::open(&app)?;
+    db::init_schema_on(&conn)?;
+    history_tasks_on(&conn)
 }
 
 #[tauri::command]
 pub fn create_task(app: AppHandle, title: String) -> Result<Task, String> {
+    let _guard = db::lock_data()?;
     migrate_json_tasks(&app)?;
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
@@ -291,52 +329,64 @@ pub fn create_task(app: AppHandle, title: String) -> Result<Task, String> {
 
 #[tauri::command]
 pub fn update_task(app: AppHandle, patch: TaskPatch) -> Result<Task, String> {
+    let _guard = db::lock_data()?;
     migrate_json_tasks(&app)?;
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
-    let mut task = get_task(&conn, &patch.id)?
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut task = get_task(&tx, &patch.id)?
         .filter(is_active_task)
         .ok_or_else(|| format!("task not found: {}", patch.id))?;
     let now = timestamp();
+
+    preserve_task_events(&tx, &task)?;
 
     if let Some(title) = patch.title {
         task.title = validate_title(&title)?;
     }
 
     if let Some(done) = patch.done {
+        let was_done = task.done;
         task.done = done;
-        if done && task.completed_at.is_none() {
+        if done && !was_done {
             task.completed_at = Some(now.clone());
-            insert_event(&conn, &task.id, "completed", &now)?;
+            insert_event(&tx, &task.id, "completed", &now)?;
         }
         if !done {
             task.completed_at = None;
+            if was_done { insert_event(&tx, &task.id, "restored", &now)?; }
         }
     }
 
     task.updated_at = now;
-    upsert_task(&conn, &task)?;
+    upsert_task(&tx, &task)?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(task)
 }
 
 #[tauri::command]
 pub fn delete_task(app: AppHandle, id: String) -> Result<Task, String> {
+    let _guard = db::lock_data()?;
     migrate_json_tasks(&app)?;
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
-    let mut task = get_task(&conn, &id)?
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut task = get_task(&tx, &id)?
         .filter(is_active_task)
         .ok_or_else(|| format!("task not found: {id}"))?;
     let now = timestamp();
+    preserve_task_events(&tx, &task)?;
     task.deleted_at = Some(now.clone());
     task.updated_at = now.clone();
-    insert_event(&conn, &task.id, "deleted", &now)?;
-    upsert_task(&conn, &task)?;
+    insert_event(&tx, &task.id, "deleted", &now)?;
+    upsert_task(&tx, &task)?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(task)
 }
 
 #[tauri::command]
 pub fn restore_task(app: AppHandle, id: String) -> Result<Task, String> {
+    let _guard = db::lock_data()?;
     migrate_json_tasks(&app)?;
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
@@ -345,17 +395,21 @@ pub fn restore_task(app: AppHandle, id: String) -> Result<Task, String> {
 
 #[tauri::command]
 pub fn clear_completed_tasks(app: AppHandle) -> Result<Vec<Task>, String> {
+    let _guard = db::lock_data()?;
     migrate_json_tasks(&app)?;
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
     let now = timestamp();
     let mut tasks = load_tasks(&app)?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for task in tasks.iter_mut().filter(|task| is_active_task(task) && task.done) {
         task.archived_at = Some(now.clone());
         task.updated_at = now.clone();
-        insert_event(&conn, &task.id, "archived", &now)?;
-        upsert_task(&conn, task)?;
+        preserve_task_events(&tx, task)?;
+        insert_event(&tx, &task.id, "archived", &now)?;
+        upsert_task(&tx, task)?;
     }
+    tx.commit().map_err(|e| e.to_string())?;
     let mut active_tasks: Vec<Task> = tasks.into_iter().filter(is_active_task).collect();
     active_tasks.sort_by_key(|task| task.order);
     Ok(active_tasks)
@@ -363,6 +417,7 @@ pub fn clear_completed_tasks(app: AppHandle) -> Result<Vec<Task>, String> {
 
 #[tauri::command]
 pub fn reorder_tasks(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
+    let _guard = db::lock_data()?;
     migrate_json_tasks(&app)?;
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
@@ -387,13 +442,15 @@ pub fn reorder_tasks(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
         }
     }
 
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for (order, id) in ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE tasks SET order_index = ?1 WHERE id = ?2",
             params![order as i32, id],
         )
         .map_err(|error| error.to_string())?;
     }
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -429,7 +486,12 @@ mod tests {
         let restored = restore_task_on(&conn, "legacy-1").unwrap();
         assert_eq!(restored.id, "legacy-1");
         assert_eq!(restored.created_at, "100");
-        assert_eq!(restored.completed_at.as_deref(), Some("150"));
+        assert!(restored.completed_at.is_none());
+        let history = history_tasks_on(&conn).unwrap();
+        assert_eq!(history.len(), 1);
+        for (event, at) in [("completed", "150"), ("archived", "180"), ("deleted", "190")] {
+            assert!(history[0].events.iter().any(|item| item.event == event && item.at == at));
+        }
         assert!(restored.archived_at.is_none());
         assert!(restored.deleted_at.is_none());
         assert!(!restored.done);

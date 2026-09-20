@@ -1,7 +1,7 @@
 import { Button } from '@nextui-org/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { eventTime, formatTime, statusOf } from '../history';
+import { eventTime, formatTime, statusOf, lifecycleEvents } from '../history';
 
 export default function HistoryList({ tasks, emptyLabel, onRestore }) {
     const { t } = useTranslation();
@@ -29,9 +29,17 @@ export default function HistoryList({ tasks, emptyLabel, onRestore }) {
                                 </span>
                             </div>
                             <div className='forge-history-time'>{formatTime(eventTime(task))}</div>
+                            <details className='text-xs opacity-80 mt-1'>
+                                <summary>{t('panel.activity')}</summary>
+                                {lifecycleEvents(task).map((event) => (
+                                    <div key={`${event.event}-${event.at}`}>
+                                        {t(`panel.status_${event.event}`)} · {formatTime(event.at)}
+                                    </div>
+                                ))}
+                            </details>
                         </div>
-                        <Button size='sm' variant='flat' onPress={() => onRestore?.(task.id)}>
-                            {t('panel.restore')}
+                        <Button size='sm' variant='flat' isDisabled={!task.done && !task.archivedAt && !task.deletedAt} onPress={() => onRestore?.(task.id)}>
+                            {!task.done && !task.archivedAt && !task.deletedAt ? t('panel.active') : t('panel.restore')}
                         </Button>
                     </div>
                 );

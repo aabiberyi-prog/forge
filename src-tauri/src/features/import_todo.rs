@@ -34,6 +34,7 @@ fn load_source(dir: &Path) -> Result<(Vec<crate::features::tasks::Task>, Vec<cra
 }
 
 fn run_merge(app: &AppHandle, dry_run: bool) -> Result<MergeReport, String> {
+    let _guard = db::lock_data()?;
     let dir = desktop_todo_dir().ok_or("cannot resolve Desktop ToDo config dir")?;
     if !dir.exists() {
         return Err(format!("Desktop ToDo data not found: {}", dir.display()));
@@ -53,20 +54,17 @@ fn run_merge(app: &AppHandle, dry_run: bool) -> Result<MergeReport, String> {
         conn.execute_batch("PRAGMA foreign_keys = ON;")
             .map_err(|error| error.to_string())?;
         db::init_schema_on(&conn)?;
-        let mut report = merge::merge_into(&mut conn, &tasks, &clips, &dir, &dest_root, dry_run)?;
-        if let Some(path) = &snapshot {
-            report.snapshot_path = Some(path.to_string_lossy().to_string());
-        }
-        if !dry_run {
-            merge::record_ledger(&conn, &report, &dir.to_string_lossy())?;
-        }
+        let report = merge::merge_into_with_snapshot(&mut conn, &tasks, &clips, &dir, &dest_root, dry_run, snapshot.as_deref())?;
         Ok(report)
     })();
     match outcome {
         Ok(report) => Ok(report),
         Err(error) => {
             if let Some(path) = snapshot {
-                let _ = merge::restore_snapshot(&path, &db_path, &dest_assets);
+                // SQL and ledger rolled back together. Do not rewind unrelated concurrent translations.
+                if let Err(rollback) = merge::restore_assets(&path, &dest_assets) {
+                    return Err(format!("{error}; rollback failed: {rollback}; snapshot retained at {}", path.display()));
+                }
             }
             Err(error)
         }
@@ -96,19 +94,40 @@ mod tests {
     use crate::features::tasks::restore_task_on;
     use rusqlite::Connection;
 
+    fn fixture_source() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("forge-legacy-fixture-{}", crate::features::json_store::unique_stamp()));
+        fs::create_dir_all(dir.join("copy-assets")).unwrap();
+        let tasks = (0..86).map(|index| crate::features::tasks::Task {
+            id: format!("legacy-{index}"), title: format!("Fixture {index}"), done: index < 64,
+            order: index, created_at: "100".into(), updated_at: "200".into(),
+            completed_at: (index < 64).then(|| "150".into()),
+            archived_at: (index < 64).then(|| "180".into()),
+            deleted_at: (64..69).contains(&index).then(|| "190".into()),
+        }).collect();
+        let items = (0..9).map(|index| {
+            let relative_path = format!("copy-assets/{index}.png");
+            let images = if index < 8 {
+                image::RgbaImage::new(1, 1).save(dir.join(&relative_path)).unwrap();
+                vec![crate::features::clips::CopyImage {
+                    id: format!("image-{index}"), file_name: format!("{index}.png"), mime_type: "image/png".into(),
+                    size_bytes: fs::metadata(dir.join(&relative_path)).unwrap().len(), relative_path, created_at: "100".into(),
+                }]
+            } else { vec![] };
+            crate::features::clips::CopyItem {
+                id: format!("clip-{index}"), title: format!("Clip {index}"), text: "fixture".into(), images,
+                order: index, created_at: "100".into(), updated_at: "200".into(),
+            }
+        }).collect();
+        fs::write(dir.join("tasks.json"), serde_json::to_vec(&TasksFile { schema_version: 1, tasks }).unwrap()).unwrap();
+        fs::write(dir.join("copy-items.json"), serde_json::to_vec(&CopyItemsFile { schema_version: 1, items }).unwrap()).unwrap();
+        dir
+    }
+
     #[test]
     fn isolated_legacy_merge_preserves_all_ids_and_is_idempotent() {
-        let Some(dir) = desktop_todo_dir() else {
-            panic!("Desktop ToDo source dir missing");
-        };
-        let (tasks, clips) = load_source(&dir).expect("legacy JSON");
-        if tasks.len() != 86 {
-            eprintln!(
-                "skipping isolated merge: source has {} tasks, not the 86-task baseline",
-                tasks.len()
-            );
-            return;
-        }
+        let dir = fixture_source();
+        let (tasks, clips) = load_source(&dir).expect("fixture JSON");
+        assert_eq!(tasks.len(), 86);
         let history = tasks
             .iter()
             .filter(|task| task.done || task.archived_at.is_some() || task.deleted_at.is_some())
@@ -204,6 +223,7 @@ mod tests {
             }
         }
         let _ = fs::remove_dir_all(tmp);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

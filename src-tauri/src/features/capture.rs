@@ -165,7 +165,9 @@ pub fn finish_capture(png_base64: String, pin: bool) -> Result<CaptureFinishResu
     let dir = capture_save_dir();
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let save_path = unique_save_path(&dir, SystemTime::now());
-    if let Err(error) = fs::write(&save_path, &bytes) {
+    use std::io::Write;
+    if let Err(error) = fs::OpenOptions::new().write(true).create_new(true).open(&save_path)
+        .and_then(|mut file| file.write_all(&bytes)) {
         return Ok(CaptureFinishResult {
             path: None,
             saved: false,
@@ -177,15 +179,13 @@ pub fn finish_capture(png_base64: String, pin: bool) -> Result<CaptureFinishResu
     let _ = record_capture_history(app, &save_path, "region");
     match copy_png_bytes(&bytes) {
         Ok(()) => {
-            if pin {
-                crate::window::pin_window();
-            }
+            let pin_error = if pin { crate::features::pins::open_pin_window(app, &save_path).err() } else { None };
             Ok(CaptureFinishResult {
                 path: Some(save_path.to_string_lossy().to_string()),
                 saved: true,
                 copied: true,
-                pinned: pin,
-                error: None,
+                pinned: pin && pin_error.is_none(),
+                error: pin_error,
             })
         }
         Err(error) => Ok(CaptureFinishResult {
@@ -203,15 +203,16 @@ pub fn retry_capture_copy(path: String, pin: bool) -> Result<CaptureFinishResult
     let bytes = fs::read(&path).map_err(|error| error.to_string())?;
     match copy_png_bytes(&bytes) {
         Ok(()) => {
-            if pin {
-                crate::window::pin_window();
-            }
+            let pin_error = if pin {
+                let app = APP.get().ok_or("app handle is not ready")?;
+                crate::features::pins::open_pin_window(app, Path::new(&path)).err()
+            } else { None };
             Ok(CaptureFinishResult {
                 path: Some(path),
                 saved: true,
                 copied: true,
-                pinned: pin,
-                error: None,
+                pinned: pin && pin_error.is_none(),
+                error: pin_error,
             })
         }
         Err(error) => Ok(CaptureFinishResult {
@@ -232,24 +233,15 @@ pub fn ensure_capture_hotkey_defaults() {
     {
         set("capture_save_dir", default_capture_dir().to_string_lossy().to_string());
     }
-    if get("hotkey_capture_region")
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default()
-        .is_empty()
+    if get("hotkey_capture_region").is_none()
     {
         set("hotkey_capture_region", "Alt+1");
     }
-    if get("hotkey_pin_to_screen")
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default()
-        .is_empty()
+    if get("hotkey_pin_to_screen").is_none()
     {
         set("hotkey_pin_to_screen", "Alt+3");
     }
-    if get("hotkey_ocr_recognize")
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default()
-        .is_empty()
+    if get("hotkey_ocr_recognize").is_none()
     {
         set("hotkey_ocr_recognize", "Alt+5");
     }

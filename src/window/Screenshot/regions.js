@@ -101,12 +101,25 @@ export function moveRegion(region, dx, dy) {
 }
 
 export function resizeRegion(region, handle, x, y) {
-    let { x0, y0, x1, y1 } = region;
-    if (handle.includes('w')) x0 = x;
-    if (handle.includes('e')) x1 = x;
-    if (handle.includes('n')) y0 = y;
-    if (handle.includes('s')) y1 = y;
-    return { ...region, x0, y0, x1, y1 };
+    const before = regionRect(region);
+    const after = resizeRect(before, handle, x, y);
+    return {
+        ...region, x0: after.left, y0: after.top,
+        x1: after.left + after.width, y1: after.top + after.height,
+        points: region.points?.map((point) => ({
+            x: after.left + ((point.x - before.left) * after.width) / (before.width || 1),
+            y: after.top + ((point.y - before.top) * after.height) / (before.height || 1),
+        })),
+    };
+}
+
+export function resizeRect(rect, handle, x, y) {
+    let left = rect.left, top = rect.top, right = left + rect.width, bottom = top + rect.height;
+    if (handle.includes('w')) left = Math.min(x, right - 2);
+    if (handle.includes('e')) right = Math.max(x, left + 2);
+    if (handle.includes('n')) top = Math.min(y, bottom - 2);
+    if (handle.includes('s')) bottom = Math.max(y, top + 2);
+    return { left, top, width: right - left, height: bottom - top };
 }
 
 export function hitHandle(region, x, y, size = 10) {
@@ -121,10 +134,10 @@ export function hitHandle(region, x, y, size = 10) {
         sw: [rect.left, rect.top + rect.height],
         w: [rect.left, rect.top + rect.height / 2],
     };
-    for (const [name, [hx, hy]] of Object.entries(handles)) {
-        if (Math.abs(x - hx) <= size && Math.abs(y - hy) <= size) return name;
-    }
-    return null;
+    const nearest = Object.entries(handles)
+        .filter(([, [hx, hy]]) => Math.abs(x - hx) <= size && Math.abs(y - hy) <= size)
+        .sort(([, a], [, b]) => Math.hypot(x - a[0], y - a[1]) - Math.hypot(x - b[0], y - b[1]));
+    return nearest[0]?.[0] || null;
 }
 
 export function cropRegionsToImageData(source, regions) {

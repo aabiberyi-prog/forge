@@ -1,7 +1,44 @@
 use rusqlite::{params, Connection};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 use tauri::AppHandle;
+
+// Coordinate native profile/asset writes with backup and import snapshots.
+static DATA_WRITES: Mutex<()> = Mutex::new(());
+
+pub fn lock_data() -> Result<MutexGuard<'static, ()>, String> {
+    DATA_WRITES.lock().map_err(|_| "profile write lock is poisoned".into())
+}
+
+pub fn copy_database(source: &Path, destination: &Path) -> Result<(), String> {
+    if source == destination {
+        return Err("database source and destination must differ".into());
+    }
+    let source = Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| error.to_string())?;
+    let integrity: String = source.query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if integrity != "ok" {
+        return Err(format!("database integrity check failed: {integrity}"));
+    }
+    let mut destination = Connection::open(destination).map_err(|error| error.to_string())?;
+    destination.busy_timeout(Duration::from_secs(5)).map_err(|error| error.to_string())?;
+    let backup = rusqlite::backup::Backup::new(&source, &mut destination)
+        .map_err(|error| error.to_string())?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        match backup.step(128).map_err(|error| error.to_string())? {
+            rusqlite::backup::StepResult::Done => return Ok(()),
+            _ if std::time::Instant::now() >= deadline => return Err("database backup timed out".into()),
+            rusqlite::backup::StepResult::Busy | rusqlite::backup::StepResult::Locked => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            _ => {}
+        }
+    }
+}
 
 pub fn history_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     let identifier = app.config().identifier.clone();
@@ -114,6 +151,14 @@ fn migrate_schema(conn: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(|error| error.to_string())?;
+    }
+    // Legacy snapshots contain lifecycle timestamps but no event rows.
+    for (event, column) in [("completed", "completed_at"), ("archived", "archived_at"), ("deleted", "deleted_at")] {
+        conn.execute(&format!(
+            "INSERT INTO task_events(task_id,event,at) SELECT t.id,?1,t.{column} FROM tasks t
+             WHERE t.{column} IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM task_events e WHERE e.task_id=t.id AND e.event=?1 AND e.at=t.{column})"
+        ), [event]).map_err(|error| error.to_string())?;
     }
     Ok(())
 }

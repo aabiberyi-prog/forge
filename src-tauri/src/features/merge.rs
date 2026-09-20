@@ -164,6 +164,7 @@ fn insert_task(conn: &Connection, task: &Task) -> Result<(), String> {
         ],
     )
     .map_err(|error| error.to_string())?;
+    super::tasks::preserve_task_events(conn, task)?;
     Ok(())
 }
 
@@ -200,14 +201,14 @@ fn insert_clip(conn: &Connection, item: &CopyItem) -> Result<(), String> {
 }
 
 pub fn snapshot_dir(dest_db: &Path, dest_assets: &Path) -> Result<PathBuf, String> {
-    let stamp = super::json_store::timestamp();
+    let stamp = super::json_store::unique_stamp();
     let dir = dest_db
         .parent()
         .unwrap_or(Path::new("."))
         .join(format!("import-snapshot-{stamp}"));
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     if dest_db.exists() {
-        fs::copy(dest_db, dir.join("history.db")).map_err(|error| error.to_string())?;
+        super::db::copy_database(dest_db, &dir.join("history.db"))?;
     }
     if dest_assets.exists() {
         copy_dir_all(dest_assets, &dir.join("copy-assets"))?;
@@ -218,11 +219,15 @@ pub fn snapshot_dir(dest_db: &Path, dest_assets: &Path) -> Result<PathBuf, Strin
 pub fn restore_snapshot(snapshot: &Path, dest_db: &Path, dest_assets: &Path) -> Result<(), String> {
     let snap_db = snapshot.join("history.db");
     if snap_db.exists() {
-        fs::copy(snap_db, dest_db).map_err(|error| error.to_string())?;
+        super::db::copy_database(&snap_db, dest_db)?;
     }
+    restore_assets(snapshot, dest_assets)
+}
+
+pub fn restore_assets(snapshot: &Path, dest_assets: &Path) -> Result<(), String> {
     let snap_assets = snapshot.join("copy-assets");
     if dest_assets.exists() {
-        let _ = fs::remove_dir_all(dest_assets);
+        fs::remove_dir_all(dest_assets).map_err(|error| error.to_string())?;
     }
     if snap_assets.exists() {
         copy_dir_all(&snap_assets, dest_assets)?;
@@ -266,10 +271,16 @@ fn copy_asset(source_root: &Path, dest_root: &Path, relative: &str) -> Result<bo
         }
     }
     let source = source_root.join(relative);
-    if !source.exists() {
-        return Ok(false);
+    if !source.is_file() {
+        return Err(format!("missing source image: {}", source.display()));
     }
     let dest = dest_root.join(relative);
+    if dest.is_file() {
+        if fs::read(&source).map_err(|e| e.to_string())? == fs::read(&dest).map_err(|e| e.to_string())? {
+            return Ok(false);
+        }
+        return Err(format!("destination image differs: {relative}"));
+    }
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
@@ -304,6 +315,21 @@ fn merge_body(
 ) -> Result<MergeReport, String> {
     let existing_tasks = load_existing_tasks(conn)?;
     let existing_clips = load_existing_clips(conn)?;
+    // Preflight every applicable asset, including duplicate clips that may need repair.
+    for item in clips {
+        if existing_clips.get(&item.id).is_some_and(|old| clip_fingerprint(old) != clip_fingerprint(item)) {
+            continue;
+        }
+        for image in &item.images {
+            let relative = Path::new(&image.relative_path);
+            if !relative.starts_with("copy-assets") || relative.components().any(|p| !matches!(p, std::path::Component::Normal(_))) {
+                return Err("image path must stay inside copy-assets".into());
+            }
+            if !source_root.join(relative).is_file() {
+                return Err(format!("missing source image: {}", image.file_name));
+            }
+        }
+    }
     let mut report = MergeReport {
         destination_only_tasks: existing_tasks
             .keys()
@@ -352,6 +378,18 @@ fn merge_body(
             }
             Some(existing) if clip_fingerprint(existing) == clip_fingerprint(item) => {
                 report.clips_skipped += 1;
+                for image in &item.images {
+                    let source = source_root.join(&image.relative_path);
+                    let dest = dest_root.join(&image.relative_path);
+                    if dest.is_file() {
+                        if fs::read(&source).map_err(|e| e.to_string())? != fs::read(&dest).map_err(|e| e.to_string())? {
+                            return Err(format!("destination image differs: {}", image.file_name));
+                        }
+                    } else {
+                        if !dry_run { copy_asset(source_root, dest_root, &image.relative_path)?; }
+                        report.images_copied += 1;
+                    }
+                }
             }
             Some(_) => report.clip_conflicts.push(Conflict {
                 id: item.id.clone(),
@@ -371,12 +409,26 @@ pub fn merge_into(
     dest_root: &Path,
     dry_run: bool,
 ) -> Result<MergeReport, String> {
+    merge_into_with_snapshot(conn, tasks, clips, source_root, dest_root, dry_run, None)
+}
+
+pub fn merge_into_with_snapshot(
+    conn: &mut Connection,
+    tasks: &[Task],
+    clips: &[CopyItem],
+    source_root: &Path,
+    dest_root: &Path,
+    dry_run: bool,
+    snapshot: Option<&Path>,
+) -> Result<MergeReport, String> {
     if dry_run {
         return merge_body(conn, tasks, clips, source_root, dest_root, true);
     }
     let tx = conn.transaction().map_err(|error| error.to_string())?;
     match merge_body(&tx, tasks, clips, source_root, dest_root, false) {
-        Ok(report) => {
+        Ok(mut report) => {
+            report.snapshot_path = snapshot.map(|path| path.to_string_lossy().to_string());
+            record_ledger(&tx, &report, &source_root.to_string_lossy())?;
             tx.commit().map_err(|error| error.to_string())?;
             Ok(report)
         }

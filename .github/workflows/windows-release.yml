@@ -34,11 +34,16 @@ jobs:
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Node regression tests
-              run: pnpm test
+            - name: Regression tests and execution evidence
+              run: pnpm verify:ci --out verification.json
 
-            - name: Rust regression tests
-              run: cargo test --manifest-path src-tauri/Cargo.toml
+            - name: Upload verification evidence
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: verification
+                  path: verification.json
+                  if-no-files-found: error
 
     nsis:
         needs: verify
@@ -81,6 +86,10 @@ jobs:
                       target-local/x86_64-pc-windows-msvc/release/bundle/nsis/*
                       update.json
                   if-no-files-found: error
+
+            - name: Require candidate-bound desktop acceptance before publishing
+              if: startsWith(github.ref, 'refs/tags/')
+              run: node .scripts/check-release-acceptance.mjs
 
             - name: Publish GitHub release
               if: startsWith(github.ref, 'refs/tags/')

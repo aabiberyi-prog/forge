@@ -43,7 +43,10 @@ fn copy_immutable(app: &AppHandle, source: &Path) -> Result<(String, PathBuf), S
     let id = PIN_SEQ.fetch_add(1, Ordering::SeqCst);
     let label = format!("pin-{id}");
     let dest = pins_dir(app)?.join(format!("{label}.png"));
-    fs::copy(source, &dest).map_err(|error| error.to_string())?;
+    // Decode first: a video/corrupt file must not become a blank pin window.
+    let image = image::ImageReader::open(source).map_err(|e| e.to_string())?
+        .with_guessed_format().map_err(|e| e.to_string())?.decode().map_err(|e| format!("invalid image: {e}"))?;
+    image.save_with_format(&dest, image::ImageFormat::Png).map_err(|e| e.to_string())?;
     let mut guard = pin_map();
     let map = guard.get_or_insert_with(HashMap::new);
     map.insert(label.clone(), dest.clone());
@@ -80,7 +83,9 @@ pub fn pin_from_clipboard() -> Result<String, String> {
     buffer
         .save(&temp)
         .map_err(|error| error.to_string())?;
-    open_pin_window(app, &temp)
+    let result = open_pin_window(app, &temp);
+    let _ = fs::remove_file(temp);
+    result
 }
 
 #[tauri::command]
@@ -109,9 +114,11 @@ fn read_sharex_history() -> Vec<PinHistoryItem> {
     let Some(path) = sharex_history_db() else {
         return Vec::new();
     };
-    if !path.exists() {
-        return Vec::new();
-    }
+    read_sharex_history_at(&path)
+}
+
+fn read_sharex_history_at(path: &Path) -> Vec<PinHistoryItem> {
+    if !path.exists() { return Vec::new(); }
     let Ok(conn) = rusqlite::Connection::open_with_flags(
         &path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -119,7 +126,7 @@ fn read_sharex_history() -> Vec<PinHistoryItem> {
         return Vec::new();
     };
     let Ok(mut stmt) = conn.prepare(
-        "SELECT Id, FileName, FilePath, DateTime, Type FROM History ORDER BY Id DESC LIMIT 200",
+        "SELECT Id, FileName, FilePath, DateTime, Type FROM History WHERE lower(Type)='image' ORDER BY Id DESC",
     ) else {
         return Vec::new();
     };
@@ -159,7 +166,7 @@ fn read_forge_history(app: &AppHandle) -> Vec<PinHistoryItem> {
     };
     let _ = db::init_schema_on(&conn);
     let Ok(mut stmt) = conn.prepare(
-        "SELECT id, path, created_at, kind FROM capture_history ORDER BY id DESC LIMIT 200",
+        "SELECT id, path, created_at, kind FROM capture_history WHERE kind != 'recording' ORDER BY id DESC",
     ) else {
         return Vec::new();
     };
@@ -177,6 +184,7 @@ fn read_forge_history(app: &AppHandle) -> Vec<PinHistoryItem> {
     rows.flatten()
         .filter_map(|(id, path, created_at, _kind)| {
             let path = path?;
+            if !is_image_path(Path::new(&path)) { return None; }
             Some(PinHistoryItem {
                 id: format!("forge-{id}"),
                 source: "forge".into(),
@@ -192,22 +200,31 @@ fn read_forge_history(app: &AppHandle) -> Vec<PinHistoryItem> {
         .collect()
 }
 
+fn is_image_path(path: &Path) -> bool {
+    path.extension().and_then(|value| value.to_str()).is_some_and(|value| {
+        ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"].contains(&value.to_ascii_lowercase().as_str())
+    })
+}
+
+pub fn release_pin(label: &str) {
+    if let Some(path) = pin_map().as_mut().and_then(|map| map.remove(label)) {
+        let _ = fs::remove_file(path);
+    }
+}
+
 #[tauri::command]
-pub fn list_pin_history() -> Result<Vec<PinHistoryItem>, String> {
-    let app = APP.get().ok_or("app handle is not ready")?;
-    let mut items = read_forge_history(app);
-    items.extend(read_sharex_history());
-    Ok(items)
+pub async fn list_pin_history() -> Result<Vec<PinHistoryItem>, String> {
+    let app = APP.get().ok_or("app handle is not ready")?.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut items = read_forge_history(&app);
+        items.extend(read_sharex_history());
+        items
+    }).await.map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn open_pin_history_window() {
     crate::window::open_pin_history();
-}
-
-pub fn pin_from_capture_cache(app: &AppHandle) -> Result<String, String> {
-    let cut = crate::features::capture::cache_cut_path(app)?;
-    open_pin_window(app, &cut)
 }
 
 #[cfg(test)]
@@ -237,8 +254,26 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM History", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 2);
+        let items = read_sharex_history_at(&fixture);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].file_name, "a.png");
+        assert!(!items[0].exists);
         let missing = !Path::new("C:/missing-a.png").exists();
         assert!(missing);
+        let _ = fs::remove_file(fixture);
+    }
+
+    #[test]
+    fn history_picker_keeps_images_beyond_two_hundred() {
+        let fixture = std::env::temp_dir().join(format!("forge-pin-history-{}.db", crate::features::json_store::unique_stamp()));
+        let conn = rusqlite::Connection::open(&fixture).unwrap();
+        conn.execute_batch("CREATE TABLE History(Id INTEGER PRIMARY KEY, FileName TEXT, FilePath TEXT, DateTime TEXT, Type TEXT);").unwrap();
+        for index in 0..205 {
+            conn.execute("INSERT INTO History VALUES(?1,'missing.png','missing.png','2026-01-01','Image')", [index]).unwrap();
+        }
+        drop(conn);
+        assert_eq!(read_sharex_history_at(&fixture).len(), 205);
+        assert!(!is_image_path(Path::new("recording.mp4")));
         let _ = fs::remove_file(fixture);
     }
 

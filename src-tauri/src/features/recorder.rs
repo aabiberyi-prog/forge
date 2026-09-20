@@ -9,11 +9,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zip::ZipArchive;
+use sha2::{Digest, Sha256};
 
 const FFMPEG_ZIP_URL: &str =
-    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+    "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.2-essentials_build.zip";
+// Published by Gyan alongside the versioned package; verified 2026-09-19.
+const FFMPEG_SHA256: &str = "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec";
 
 struct ActiveRecording {
     child: Child,
@@ -21,6 +25,8 @@ struct ActiveRecording {
 }
 
 static RECORDING: Mutex<Option<ActiveRecording>> = Mutex::new(None);
+static RECORD_JOB: Mutex<()> = Mutex::new(());
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
 pub fn ffmpeg_args(output: &Path) -> Vec<String> {
     vec![
@@ -52,7 +58,8 @@ fn sidecar_ffmpeg_path() -> Result<PathBuf, String> {
     let dir = dirs::data_local_dir()
         .ok_or("local data dir missing")?
         .join(identifier)
-        .join("ffmpeg");
+        .join("ffmpeg")
+        .join("8.1.2");
     Ok(dir.join("ffmpeg.exe"))
 }
 
@@ -81,13 +88,12 @@ fn path_ffmpeg() -> Option<PathBuf> {
 pub fn resolve_ffmpeg() -> Result<PathBuf, String> {
     let sidecar = sidecar_ffmpeg_path()?;
     if sidecar.exists() {
-        if ffmpeg_responds(&sidecar) {
+        if tools_respond(&sidecar) {
             return Ok(sidecar);
         }
-        return Err(format!("ffmpeg sidecar is not runnable: {}", sidecar.display()));
     }
     if let Some(path) = path_ffmpeg() {
-        if ffmpeg_responds(&path) {
+        if tools_respond(&path) {
             return Ok(path);
         }
         return Err(format!("ffmpeg on PATH is not runnable: {}", path.display()));
@@ -101,17 +107,22 @@ fn extract_ffmpeg_exe(zip_path: &Path, dest: &Path) -> Result<(), String> {
     }
     let file = File::open(zip_path).map_err(|error| error.to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|error| error.to_string())?;
+    let mut found = std::collections::HashSet::new();
     for index in 0..archive.len() {
         let mut item = archive.by_index(index).map_err(|error| error.to_string())?;
         let name = item.name().replace('\\', "/");
-        if !name.ends_with("/ffmpeg.exe") && name != "ffmpeg.exe" {
-            continue;
-        }
-        let mut out = File::create(dest).map_err(|error| error.to_string())?;
+        let file_name = name.rsplit('/').next().unwrap_or("");
+        if !["ffmpeg.exe", "ffprobe.exe"].contains(&file_name) { continue; }
+        if !found.insert(file_name.to_string()) { return Err("duplicate recorder tool in archive".into()); }
+        let mut out = File::create(dest.with_file_name(file_name)).map_err(|error| error.to_string())?;
         std::io::copy(&mut item, &mut out).map_err(|error| error.to_string())?;
-        return Ok(());
     }
-    Err("ffmpeg.exe missing from archive".into())
+    if found.len() == 2 { Ok(()) } else { Err("ffmpeg.exe or ffprobe.exe missing from archive".into()) }
+}
+
+fn verify_download(bytes: &[u8], expected: &str) -> Result<(), String> {
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if actual.eq_ignore_ascii_case(expected) { Ok(()) } else { Err("FFmpeg checksum mismatch".into()) }
 }
 
 pub fn fetch_ffmpeg() -> Result<PathBuf, String> {
@@ -119,23 +130,39 @@ pub fn fetch_ffmpeg() -> Result<PathBuf, String> {
         return Ok(existing);
     }
     let dest = sidecar_ffmpeg_path()?;
-    let zip_path = dest.with_extension("zip");
-    if let Some(parent) = zip_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    info!("Downloading ffmpeg from {FFMPEG_ZIP_URL}");
-    let bytes = reqwest::blocking::get(FFMPEG_ZIP_URL)
-        .map_err(|error| error.to_string())?
-        .bytes()
-        .map_err(|error| error.to_string())?;
-    fs::write(&zip_path, &bytes).map_err(|error| error.to_string())?;
-    extract_ffmpeg_exe(&zip_path, &dest)?;
-    let _ = fs::remove_file(zip_path);
-    if dest.exists() {
-        Ok(dest)
-    } else {
-        Err("ffmpeg download did not produce ffmpeg.exe".into())
-    }
+    let install = dest.parent().ok_or("missing tool directory")?;
+    let root = install.parent().ok_or("missing tool cache")?;
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let staging = root.join(format!("staging-{}", crate::features::json_store::unique_stamp()));
+    fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+    let result = (|| {
+        use std::io::Read;
+        let response = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(120))
+            .build().map_err(|e| e.to_string())?.get(FFMPEG_ZIP_URL).send()
+            .map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?;
+        let limit = 200 * 1024 * 1024;
+        let mut bytes = Vec::new();
+        response.take(limit + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > limit { return Err("FFmpeg download exceeds size limit".into()); }
+        verify_download(&bytes, FFMPEG_SHA256)?;
+        let zip = staging.join("download.zip");
+        fs::write(&zip, bytes).map_err(|e| e.to_string())?;
+        let staged = staging.join("ffmpeg.exe");
+        extract_ffmpeg_exe(&zip, &staged)?;
+        fs::remove_file(zip).map_err(|e| e.to_string())?;
+        if !tools_respond(&staged) { return Err("Downloaded recorder tools failed their version check".into()); }
+        let previous = root.join(format!("previous-{}", crate::features::json_store::unique_stamp()));
+        let had_previous = install.exists();
+        if had_previous { fs::rename(install, &previous).map_err(|e| e.to_string())?; }
+        if let Err(error) = fs::rename(&staging, install) {
+            if had_previous { let _ = fs::rename(&previous, install); }
+            return Err(error.to_string());
+        }
+        if had_previous { let _ = fs::remove_dir_all(previous); }
+        Ok(dest.clone())
+    })();
+    let _ = fs::remove_dir_all(staging);
+    result
 }
 
 fn recording_filename(now: SystemTime) -> String {
@@ -162,15 +189,49 @@ fn unique_recording_path(dir: &Path, now: SystemTime) -> PathBuf {
     }
 }
 
+fn probe_has_frame(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes).ok()
+        .and_then(|value| value.get("frames").and_then(|frames| frames.as_array()).cloned())
+        .is_some_and(|frames| frames.iter().any(|frame| frame["media_type"] == "video"
+            && frame["width"].as_u64().unwrap_or(0) > 0 && frame["height"].as_u64().unwrap_or(0) > 0))
+}
+
 pub fn recording_output_is_valid(path: &Path, success: bool) -> Result<(), String> {
-    if !success {
-        return Err("ffmpeg exited with an error".into());
-    }
+    if !success { return Err("ffmpeg exited with an error".into()); }
     let meta = fs::metadata(path).map_err(|_| format!("recording missing: {}", path.display()))?;
-    if meta.len() < 32 {
-        return Err(format!("recording too small: {}", path.display()));
+    if meta.len() < 32 { return Err("recording too small".into()); }
+    let probe = resolve_ffmpeg()?.with_file_name("ffprobe.exe");
+    let mut command = hidden_command(&probe);
+    command.args(["-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#5", "-show_frames", "-show_entries", "frame=media_type,width,height", "-of", "json"]).arg(path);
+    let output = checked_output(&mut command, std::time::Duration::from_secs(15))?;
+    if output.status.success() && probe_has_frame(&output.stdout) { Ok(()) }
+    else { Err("recording contains no decodable video frame".into()) }
+}
+
+fn hidden_command(path: &Path) -> Command {
+    let mut command = Command::new(path);
+    #[cfg(windows)] {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
     }
-    Ok(())
+    command
+}
+
+fn checked_output(command: &mut Command, timeout: std::time::Duration) -> Result<std::process::Output, String> {
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    let deadline = std::time::Instant::now() + timeout;
+    while child.try_wait().map_err(|e| e.to_string())?.is_none() {
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill(); let _ = child.wait();
+            return Err("recorder tool timed out".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    child.wait_with_output().map_err(|e| e.to_string())
+}
+
+fn tools_respond(ffmpeg: &Path) -> bool {
+    ffmpeg_responds(ffmpeg) && ffmpeg_responds(&ffmpeg.with_file_name("ffprobe.exe"))
 }
 
 fn child_is_running(child: &mut Child) -> bool {
@@ -181,13 +242,8 @@ fn child_is_running(child: &mut Child) -> bool {
 }
 
 fn ffmpeg_responds(path: &Path) -> bool {
-    Command::new(path)
-        .arg("-version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    checked_output(hidden_command(path).arg("-version"), std::time::Duration::from_secs(5))
+        .map(|output| output.status.success()).unwrap_or(false)
 }
 
 fn notify(title: &str, body: &str) {
@@ -227,9 +283,16 @@ fn start_recording() -> Result<PathBuf, String> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let mut slot = RECORDING.lock().map_err(|error| error.to_string())?;
+    if SHUTTING_DOWN.load(Ordering::SeqCst) { return Err("recording cancelled during shutdown".into()); }
+    let child = command.spawn().map_err(|error| error.to_string())?;
+    *slot = Some(ActiveRecording { child, path: path.clone() });
+    drop(slot);
     std::thread::sleep(std::time::Duration::from_millis(80));
-    if !child_is_running(&mut child) {
+    let mut slot = RECORDING.lock().map_err(|error| error.to_string())?;
+    let running = slot.as_mut().map(|active| child_is_running(&mut active.child)).unwrap_or(false);
+    if !running {
+        *slot = None;
         let log = fs::read_to_string(&log_path).unwrap_or_default();
         let _ = fs::remove_file(&path);
         return Err(format!(
@@ -237,10 +300,7 @@ fn start_recording() -> Result<PathBuf, String> {
             log.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
         ));
     }
-    *RECORDING.lock().map_err(|error| error.to_string())? = Some(ActiveRecording {
-        child,
-        path: path.clone(),
-    });
+    drop(slot);
     info!("Screen recording started: {}", path.display());
     notify("Forge", "Recording screen");
     Ok(path)
@@ -255,7 +315,16 @@ fn stop_recording() -> Result<PathBuf, String> {
         let _ = stdin.write_all(b"q\n");
         let _ = stdin.flush();
     }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while active.child.try_wait().map_err(|e| e.to_string())?.is_none() {
+        if std::time::Instant::now() >= deadline {
+            let _ = active.child.kill(); let _ = active.child.wait();
+            return Err("recording did not stop within 10 seconds".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
     let status = active.child.wait();
+    drop(slot);
     let success = status.as_ref().map(|code| code.success()).unwrap_or(false);
     if let Err(error) = recording_output_is_valid(&active.path, success) {
         let log = fs::read_to_string(active.path.with_extension("ffmpeg.log")).unwrap_or_default();
@@ -301,6 +370,7 @@ pub fn is_recording() -> bool {
 }
 
 pub fn finalize_recording_on_quit() {
+    SHUTTING_DOWN.store(true, Ordering::SeqCst);
     if is_recording() {
         match stop_recording() {
             Ok(path) => info!("Recording finalized on quit: {}", path.display()),
@@ -309,16 +379,24 @@ pub fn finalize_recording_on_quit() {
     }
 }
 
-pub fn toggle_recording() {
+fn toggle_recording_now() -> Result<bool, String> {
+    let _job = RECORD_JOB.try_lock().map_err(|_| "recording is starting or stopping".to_string())?;
+    if SHUTTING_DOWN.load(Ordering::SeqCst) { return Err("application is shutting down".into()); }
     let result = if is_recording() {
         stop_recording()
     } else {
         start_recording()
     };
-    if let Err(error) = result {
-        warn!("Screen recording failed: {error}");
-        notify("Forge", &format!("Recording failed: {error}"));
-    }
+    result.map(|_| is_recording())
+}
+
+pub fn toggle_recording() {
+    std::thread::spawn(|| {
+        if let Err(error) = toggle_recording_now() {
+            warn!("Screen recording failed: {error}");
+            notify("Forge", &format!("Recording failed: {error}"));
+        }
+    });
 }
 
 #[tauri::command]
@@ -327,16 +405,12 @@ pub fn recording_status() -> bool {
 }
 
 #[tauri::command]
-pub fn toggle_screen_recording() -> Result<bool, String> {
-    toggle_recording();
-    Ok(is_recording())
+pub async fn toggle_screen_recording() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(toggle_recording_now).await.map_err(|e| e.to_string())?
 }
 
 pub fn ensure_recording_hotkey_default() {
-    if get("hotkey_screen_recording")
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default()
-        .is_empty()
+    if get("hotkey_screen_recording").is_none()
     {
         set("hotkey_screen_recording", "Alt+4");
     }
@@ -345,6 +419,29 @@ pub fn ensure_recording_hotkey_default() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recorder_requires_decoded_frame_and_verified_download() {
+        assert!(!probe_has_frame(br#"{"frames":[]}"#));
+        assert!(!probe_has_frame(br#"{"streams":[{"width":16,"height":16}]}"#));
+        assert!(probe_has_frame(br#"{"frames":[{"media_type":"video","width":16,"height":16}]}"#));
+        assert!(verify_download(b"abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad").is_ok());
+        assert!(verify_download(b"modified", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad").is_err());
+    }
+
+    #[test]
+    #[ignore = "requires installed ffmpeg/ffprobe; creates synthetic video only"]
+    fn synthetic_recording_decodes_with_real_tools() {
+        let tool = resolve_ffmpeg().unwrap();
+        let dir = std::env::temp_dir().join(format!("forge-video-fixture-{}", crate::features::json_store::unique_stamp()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fixture.mp4");
+        let output = checked_output(hidden_command(&tool)
+            .args(["-hide_banner", "-y", "-f", "lavfi", "-i", "color=c=black:s=16x16:r=10", "-t", "0.5", "-c:v", "libx264", "-pix_fmt", "yuv420p"]).arg(&path), std::time::Duration::from_secs(15)).unwrap();
+        assert!(output.status.success());
+        recording_output_is_valid(&path, true).unwrap();
+        let _ = fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn gdigrab_args_match_sharex_defaults() {
@@ -375,7 +472,7 @@ mod tests {
         assert!(recording_output_is_valid(&path, true).is_err());
         fs::write(&path, [0u8; 64]).unwrap();
         assert!(recording_output_is_valid(&path, false).is_err());
-        assert!(recording_output_is_valid(&path, true).is_ok());
+        assert!(recording_output_is_valid(&path, true).is_err());
         let _ = fs::remove_file(&path);
     }
 

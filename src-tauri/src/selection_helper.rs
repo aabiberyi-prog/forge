@@ -31,6 +31,7 @@ fn powershell_path() -> PathBuf {
 /// Launch headless selection helper if not already running.
 #[cfg(target_os = "windows")]
 pub fn start_selection_helper() {
+    if crate::config::is_review_profile() { return; }
     let dir = helper_dir();
     let script = dir.join("PotTerminalHelper.ps1");
     if !script.exists() {
@@ -94,6 +95,7 @@ pub fn start_selection_helper() {}
 /// Best-effort stop of selection helper when Pot quits.
 #[cfg(target_os = "windows")]
 pub fn stop_selection_helper() {
+    if crate::config::is_review_profile() { return; }
     // An isolated profile can deliberately omit the helper. Its exit must not stop
     // a helper belonging to the installed application.
     if !helper_dir().join("PotTerminalHelper.ps1").exists() {

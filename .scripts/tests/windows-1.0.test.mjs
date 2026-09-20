@@ -33,8 +33,8 @@ test('Windows 1.0 workflow builds NSIS with Tauri 2 signing env', () => {
 });
 
 test('CI regression workflow tests without publishing', () => {
-    assert.match(ci, /pnpm test/);
-    assert.match(ci, /cargo test/);
+    assert.match(ci, /pnpm verify:ci/);
+    assert.match(ci, /verification.json/);
     assert.doesNotMatch(ci, /action-gh-release/);
     assert.doesNotMatch(ci, /Pylogmon\.pot/);
     assert.match(workflow, /needs: verify/);

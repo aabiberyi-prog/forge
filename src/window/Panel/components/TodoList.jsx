@@ -1,9 +1,11 @@
+import { useTranslation } from 'react-i18next';
 import { Button, Checkbox, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, Input } from '@nextui-org/react';
 import { DragDropContext, Draggable, Droppable } from 'react-beautiful-dnd';
 import { MdMoreVert } from 'react-icons/md';
 import React, { useState } from 'react';
 
 export default function TodoList({ todos, onToggleDone, onDelete, onEdit, onReorder }) {
+    const { t } = useTranslation();
     const [editingId, setEditingId] = useState(null);
     const [editValue, setEditValue] = useState('');
 
@@ -24,7 +26,7 @@ export default function TodoList({ todos, onToggleDone, onDelete, onEdit, onReor
     };
 
     if (todos.length === 0) {
-        return <div className='forge-panel-empty'>No tasks</div>;
+        return <div className='forge-panel-empty'>{t('panel.tasks_empty')}</div>;
     }
 
     return (
@@ -60,8 +62,8 @@ export default function TodoList({ todos, onToggleDone, onDelete, onEdit, onReor
                                                 value={editValue}
                                                 onValueChange={setEditValue}
                                                 onKeyDown={(event) => {
-                                                    if (event.key === 'Enter') saveEdit(todo.id);
-                                                    if (event.key === 'Escape') setEditingId(null);
+                                                    if (event.key === 'Enter' && !event.nativeEvent?.isComposing) saveEdit(todo.id);
+                                                    if (event.key === 'Escape') { event.stopPropagation(); setEditingId(null); }
                                                 }}
                                                 onBlur={() => saveEdit(todo.id)}
                                             />
@@ -83,7 +85,7 @@ export default function TodoList({ todos, onToggleDone, onDelete, onEdit, onReor
                                                 </Button>
                                             </DropdownTrigger>
                                             <DropdownMenu
-                                                aria-label='Task actions'
+                                                aria-label={t('panel.task_actions')}
                                                 onAction={(key) => {
                                                     if (key === 'edit') {
                                                         setEditingId(todo.id);
@@ -92,9 +94,9 @@ export default function TodoList({ todos, onToggleDone, onDelete, onEdit, onReor
                                                     if (key === 'delete') onDelete(todo.id);
                                                 }}
                                             >
-                                                <DropdownItem key='edit'>Edit</DropdownItem>
+                                                <DropdownItem key='edit'>{t('panel.edit')}</DropdownItem>
                                                 <DropdownItem key='delete' color='danger'>
-                                                    Delete
+                                                    {t('panel.delete')}
                                                 </DropdownItem>
                                             </DropdownMenu>
                                         </Dropdown>

@@ -7,7 +7,9 @@ use tauri::{AppHandle, Manager};
 const SERVICE: &str = "com.aabiber.forge";
 
 fn entry(name: &str) -> Result<Entry, String> {
-    Entry::new(SERVICE, name).map_err(|error| error.to_string())
+    let service = crate::APP.get().map(|app| app.config().identifier.as_str())
+        .filter(|identifier| *identifier != "com.aabiber.pot-forge").unwrap_or(SERVICE);
+    Entry::new(service, name).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

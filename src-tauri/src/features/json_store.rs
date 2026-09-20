@@ -32,28 +32,19 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
 
-    let temp_path = path.with_extension("tmp");
+    use std::io::Write;
+    let temp_path = path.with_extension(format!("{}.tmp", unique_stamp()));
     let raw = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
-    fs::write(&temp_path, raw).map_err(|error| error.to_string())?;
-    let backup_path = path.with_extension("bak");
-    if path.exists() {
-        fs::copy(path, &backup_path).map_err(|error| error.to_string())?;
-    }
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
-    }
-    match fs::rename(&temp_path, path) {
-        Ok(()) => {
-            let _ = fs::remove_file(backup_path);
-            Ok(())
-        }
-        Err(error) => {
-            if backup_path.exists() && !path.exists() {
-                let _ = fs::rename(&backup_path, path);
-            }
-            Err(error.to_string())
-        }
-    }
+    let result = (|| {
+        let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temp_path).map_err(|e| e.to_string())?;
+        file.write_all(raw.as_bytes()).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        // std::fs::rename replaces an existing file atomically on Windows and Unix.
+        fs::rename(&temp_path, path).map_err(|e| e.to_string())
+    })();
+    if result.is_err() { let _ = fs::remove_file(temp_path); }
+    result
 }
 
 pub fn timestamp() -> String {

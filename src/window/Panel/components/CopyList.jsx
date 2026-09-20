@@ -1,18 +1,20 @@
+import { useTranslation } from 'react-i18next';
 import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger } from '@nextui-org/react';
 import { DragDropContext, Draggable, Droppable } from 'react-beautiful-dnd';
 import { MdAdd, MdMoreVert } from 'react-icons/md';
 import React from 'react';
 
 export default function CopyList({ items, onCreate, onCopy, onEdit, onDelete, onReorder }) {
+    const { t } = useTranslation();
     return (
         <div>
             <div className='flex justify-end mb-1'>
                 <Button size='sm' variant='flat' startContent={<MdAdd />} onPress={onCreate}>
-                    Clip
+                    {t('panel.new_clip')}
                 </Button>
             </div>
             {items.length === 0 ? (
-                <div className='forge-panel-empty'>No clips</div>
+                <div className='forge-panel-empty'>{t('panel.clips_empty')}</div>
             ) : (
                 <DragDropContext
                     onDragEnd={(result) => {
@@ -39,12 +41,12 @@ export default function CopyList({ items, onCreate, onCopy, onEdit, onDelete, on
                                                     type='button'
                                                     className='flex-1 text-left'
                                                     onClick={() => onCopy(item.id)}
-                                                    title='Copy'
+                                                    title={t('panel.copy')}
                                                 >
                                                     <div className='text-sm'>{item.title}</div>
                                                     {item.text ? <div className='forge-panel-preview'>{item.text}</div> : null}
                                                     {item.images?.length > 0 ? (
-                                                        <div className='forge-panel-preview'>{item.images.length} images</div>
+                                                        <div className='forge-panel-preview'>{t('panel.image_count', { count: item.images.length })}</div>
                                                     ) : null}
                                                 </button>
                                                 <Dropdown>
@@ -54,15 +56,15 @@ export default function CopyList({ items, onCreate, onCopy, onEdit, onDelete, on
                                                         </Button>
                                                     </DropdownTrigger>
                                                     <DropdownMenu
-                                                        aria-label='Clip actions'
+                                                        aria-label={t('panel.clip_actions')}
                                                         onAction={(key) => {
                                                             if (key === 'edit') onEdit(item.id);
                                                             if (key === 'delete') onDelete(item.id);
                                                         }}
                                                     >
-                                                        <DropdownItem key='edit'>Edit</DropdownItem>
+                                                        <DropdownItem key='edit'>{t('panel.edit')}</DropdownItem>
                                                         <DropdownItem key='delete' color='danger'>
-                                                            Delete
+                                                            {t('panel.delete')}
                                                         </DropdownItem>
                                                     </DropdownMenu>
                                                 </Dropdown>

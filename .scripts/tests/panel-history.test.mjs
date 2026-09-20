@@ -42,3 +42,12 @@ test('pagination does not shrink the searchable set', () => {
     assert.equal(page.total, 45);
     assert.equal(page.pageCount, 3);
 });
+
+test('restored tasks retain searchable dated lifecycle events', () => {
+    const restored = { id: 'restored', title: 'Old task', done: false, completedAt: null, deletedAt: null,
+        events: [{ event: 'restored', at: String(new Date('2026-09-19T12:00:00').getTime()) },
+            { event: 'deleted', at: String(new Date('2026-08-01T12:00:00').getTime()) }] };
+    assert.equal(filterHistory([restored], { statuses: ['deleted'], from: '2026-08-01', to: '2026-08-01' }).length, 1);
+    assert.equal(filterHistory([restored], { statuses: ['deleted'], from: '2026-09-01' }).length, 0);
+    assert.equal(statusCounts([restored]).deleted, 1);
+});

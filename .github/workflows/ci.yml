@@ -33,10 +33,13 @@ jobs:
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Node regression tests
-              run: pnpm test
+            - name: Regression tests and execution evidence
+              run: pnpm verify:ci --out verification.json
 
-            - name: Rust regression tests
-              run: cargo test --manifest-path src-tauri/Cargo.toml
-              env:
-                  CARGO_TERM_COLOR: always
+            - name: Upload verification evidence
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: verification
+                  path: verification.json
+                  if-no-files-found: error

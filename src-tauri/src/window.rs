@@ -149,12 +149,21 @@ pub fn panel_window() {
     if !exists {
         let _ = crate::features::panel::restore_panel_window(&window);
         crate::features::panel::attach_panel_lifecycle(&window);
+    } else if let Ok(settings) = crate::features::panel::get_panel_settings(window.app_handle().clone()) {
+        let _ = crate::features::panel::apply_settings_to_window(&window, &settings);
     }
     let _ = window.show();
 }
 
 pub fn config_window() {
-    let (window, _exists) = build_window("config", "Config");
+    let (window, exists) = build_window("config", if crate::config::is_review_profile() { "Forge Review Config" } else { "Config" });
+    if !exists {
+        window.on_window_event(|event| {
+            if matches!(event, tauri::WindowEvent::Focused(false) | tauri::WindowEvent::CloseRequested { .. }) {
+                if let Err(error) = crate::hotkey::restore_shortcut_edit() { log::warn!("Restore shortcut editor: {error}"); }
+            }
+        });
+    }
     window
         .set_min_size(Some(tauri::LogicalSize::new(800, 400)))
         .unwrap();
@@ -487,20 +496,17 @@ pub fn pin_capture() {
     let _ = screenshot_window();
 }
 
-pub fn pin_window() {
-    if let Some(app) = crate::APP.get() {
-        if crate::features::pins::pin_from_capture_cache(app).is_ok() {
-            return;
-        }
-    }
-    open_named_pin("pin-1");
-}
-
 pub fn open_named_pin(label: &str) {
-    let (window, _exists) = build_window(label, "Pin");
-    let _ = window.set_skip_taskbar(true);
+    let (window, exists) = build_window(label, "Pin");
+    let _ = window.set_skip_taskbar(false);
     let _ = window.set_always_on_top(true);
     let _ = window.set_resizable(true);
+    if !exists {
+        let label = label.to_string();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) { crate::features::pins::release_pin(&label); }
+        });
+    }
     let _ = window.show();
 }
 

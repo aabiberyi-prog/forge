@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backup;
+#[cfg(test)]
+mod review_regressions;
 mod clipboard;
 mod cmd;
 mod config;
@@ -119,7 +121,7 @@ fn main() {
                 Err(error) => log::warn!("Secret migration failed: {error}"),
             }
             // Check First Run
-            if is_first_run() {
+            if is_first_run() || crate::config::is_review_profile() {
                 // Open Config Window
                 info!("First Run, opening config window");
                 config_window();
@@ -133,23 +135,15 @@ fn main() {
             // Register Global Shortcut
             crate::features::capture::ensure_capture_hotkey_defaults();
             crate::features::recorder::ensure_recording_hotkey_default();
-            if crate::config::get("hotkey_scrolling_capture")
-                .and_then(|value| value.as_str().map(str::to_owned))
-                .unwrap_or_default()
-                .is_empty()
-            {
+            if crate::config::get("hotkey_scrolling_capture").is_none() {
                 crate::config::set("hotkey_scrolling_capture", "Alt+2");
             }
-            match register_shortcut("all") {
-                Ok(()) => {}
-                Err(e) => app
-                    .notification()
-                    .builder()
-                    .title("Failed to register global shortcut")
-                    .body(&e)
-                    .icon("pot")
-                    .show()
-                    .unwrap_or_else(|error| log::warn!("Shortcut notification failed: {error}")),
+            let errors: Vec<String> = register_implemented().into_iter()
+                .filter(|item| item.implemented && !item.shortcut.is_empty() && !item.registered)
+                .map(|item| format!("{}: {}", item.action, item.error.unwrap_or_default())).collect();
+            if !errors.is_empty() {
+                let _ = app.notification().builder().title("Failed to register global shortcut")
+                    .body(errors.join("\n")).show();
             }
             match get("proxy_enable") {
                 Some(v) => {
@@ -163,7 +157,7 @@ fn main() {
                 None => {}
             }
             // Check Update
-            check_update(app.handle().clone());
+            if !crate::config::is_review_profile() { check_update(app.handle().clone()); }
             if let Some(engine) = get("translate_detect_engine") {
                 if engine.as_str().unwrap() == "local" {
                     init_lang_detect();
@@ -196,6 +190,8 @@ fn main() {
             run_binary,
             open_devtools,
             register_shortcut_by_frontend,
+            begin_shortcut_edit,
+            end_shortcut_edit,
             update_tray,
             updater_window,
             screenshot,

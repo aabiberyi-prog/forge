@@ -1,9 +1,11 @@
 import { Button, Slider } from '@nextui-org/react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { LogicalSize } from '@tauri-apps/api/dpi';
+import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
+import { currentMonitor, primaryMonitor } from '@tauri-apps/api/window';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { fitScale, pinLayout } from './layout';
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -14,11 +16,23 @@ export default function Pin() {
     const [scale, setScale] = useState(1);
     const [opacity, setOpacity] = useState(1);
     const natural = useRef({ width: 320, height: 200 });
+    const [layout, setLayout] = useState({ imageWidth: 320, imageHeight: 200 });
+    const topBar = useRef(null);
+    const bottomBar = useRef(null);
+    const fit = useRef(1);
+    const sizing = useRef(Promise.resolve());
 
     const applySize = async (nextScale) => {
-        const width = Math.max(80, Math.round(natural.current.width * nextScale));
-        const height = Math.max(60, Math.round(natural.current.height * nextScale));
-        await appWindow.setSize(new LogicalSize(width, height + 36));
+        sizing.current = sizing.current.catch(() => {}).then(async () => {
+            const monitor = await currentMonitor() || await primaryMonitor();
+            if (!monitor) throw new Error(t('pin.monitor_missing'));
+            const chrome = (topBar.current?.offsetHeight || 40) + (bottomBar.current?.offsetHeight || 40);
+            const next = pinLayout(natural.current, nextScale, monitor, await appWindow.outerPosition(), chrome);
+            setLayout(next);
+            await appWindow.setSize(new LogicalSize(next.width, next.height));
+            await appWindow.setPosition(new PhysicalPosition(Math.round(next.x), Math.round(next.y)));
+        }).catch((error) => setError(error?.message || String(error)));
+        return sizing.current;
     };
 
     useEffect(() => {
@@ -41,7 +55,7 @@ export default function Pin() {
 
     return (
         <div className='h-screen w-screen bg-black/40 text-white flex flex-col'>
-            <div className='flex items-center gap-1 px-1 py-0.5 text-[11px]' data-tauri-drag-region>
+            <div ref={topBar} className='flex flex-wrap items-center gap-1 px-1 py-0.5 text-[11px] shrink-0' data-tauri-drag-region>
                 <Button size='sm' variant='light' onPress={() => appWindow.minimize()}>
                     {t('pin.minimize')}
                 </Button>
@@ -62,9 +76,9 @@ export default function Pin() {
                     size='sm'
                     variant='light'
                     onPress={() => {
-                        setScale(1);
+                        setScale(fit.current);
                         setOpacity(1);
-                        void applySize(1);
+                        void applySize(fit.current);
                     }}
                 >
                     {t('pin.reset')}
@@ -79,29 +93,35 @@ export default function Pin() {
             {error ? (
                 <div className='flex-1 flex items-center justify-center text-sm px-3 text-center'>{error}</div>
             ) : (
+                <div className='flex-1 min-h-0 overflow-auto'>
                 <img
                     src={src}
                     alt=''
-                    className='flex-1 object-contain select-none'
-                    style={{ opacity }}
+                    className='block max-w-none select-none'
+                    style={{ opacity, width: layout.imageWidth, height: layout.imageHeight }}
                     draggable={false}
-                    onDoubleClick={() => appWindow.close()}
+                    onDoubleClick={() => appWindow.minimize()}
+                    onError={() => setError(t('pin.invalid_image'))}
                     onLoad={async (event) => {
                         natural.current = {
                             width: event.target.naturalWidth,
                             height: event.target.naturalHeight,
                         };
+                        const monitor = await currentMonitor() || await primaryMonitor();
+                        fit.current = monitor ? Math.max(0.01, fitScale(natural.current, monitor)) : 1;
+                        setScale(fit.current);
                         await appWindow.setAlwaysOnTop(true);
-                        await applySize(scale);
+                        await applySize(fit.current);
                         await appWindow.show();
                     }}
                 />
+                </div>
             )}
-            <div className='flex items-center gap-2 px-2 py-1 text-[11px]'>
+            <div ref={bottomBar} className='flex flex-wrap items-center gap-2 px-2 py-1 text-[11px] shrink-0'>
                 <span>{t('pin.scale')}</span>
                 <Slider
                     size='sm'
-                    minValue={0.25}
+                    minValue={0.01}
                     maxValue={3}
                     step={0.05}
                     value={scale}

@@ -241,6 +241,12 @@ fn save_copy_items(app: &AppHandle, items: &[CopyItem]) -> Result<(), String> {
 }
 
 fn upsert_clip(conn: &rusqlite::Connection, item: &CopyItem) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    upsert_clip_rows(&tx, item)?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
+fn upsert_clip_rows(conn: &rusqlite::Connection, item: &CopyItem) -> Result<(), String> {
     conn.execute(
         "INSERT INTO clips(id, title, text, order_index, created_at, updated_at) VALUES(?1,?2,?3,?4,?5,?6)
          ON CONFLICT(id) DO UPDATE SET
@@ -297,11 +303,11 @@ fn default_copy_items() -> Vec<CopyItem> {
 }
 
 fn next_copy_item_id() -> String {
-    format!("copy-{}", timestamp())
+    format!("copy-{}", super::json_store::unique_stamp())
 }
 
 fn next_copy_image_id(index: usize) -> String {
-    format!("image-{}-{}", timestamp(), index)
+    format!("image-{}-{}", super::json_store::unique_stamp(), index)
 }
 
 fn validate_copy_title(title: &str) -> Result<String, String> {
@@ -413,12 +419,27 @@ fn copy_asset_path(app: &AppHandle, relative_path: &str) -> Result<PathBuf, Stri
     Ok(app_data_dir(app)?.join(relative_path))
 }
 
+#[derive(Default)]
+struct PendingAssets {
+    paths: Vec<PathBuf>,
+    committed: bool,
+}
+
+impl Drop for PendingAssets {
+    fn drop(&mut self) {
+        if !self.committed {
+            for path in &self.paths { let _ = fs::remove_file(path); }
+        }
+    }
+}
+
 fn create_or_update_copy_image(
     app: &AppHandle,
     item_id: &str,
     image_input: &CopyImageInput,
     existing_item: Option<&CopyItem>,
     index: usize,
+    pending: &mut PendingAssets,
 ) -> Result<CopyImage, String> {
     let mime_type = image_input.mime_type.to_ascii_lowercase();
     image_extension(&mime_type).ok_or_else(|| "unsupported image type".to_string())?;
@@ -437,16 +458,15 @@ fn create_or_update_copy_image(
         .as_ref()
         .ok_or_else(|| "new copy image requires dataUrl".to_string())?;
     let bytes = decode_image_data_url(data_url, &mime_type)?;
-    let image_id = image_input
-        .id
-        .clone()
-        .unwrap_or_else(|| next_copy_image_id(index));
+    // New bytes get a new immutable path; an unsuccessful edit cannot overwrite old assets.
+    let image_id = next_copy_image_id(index);
     let relative_path = copy_image_relative_path(item_id, &image_id, &mime_type)?;
     let asset_path = copy_asset_path(app, &relative_path)?;
 
     if let Some(parent) = asset_path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
+    pending.paths.push(asset_path.clone());
     fs::write(&asset_path, &bytes).map_err(|error| error.to_string())?;
 
     Ok(CopyImage {
@@ -551,6 +571,7 @@ pub fn get_copy_item(app: AppHandle, id: String) -> Result<CopyItem, String> {
 
 #[tauri::command]
 pub fn create_copy_item(app: AppHandle, input: CopyItemInput) -> Result<CopyItem, String> {
+    let _guard = db::lock_data()?;
     let title = validate_copy_title(&input.title)?;
     validate_copy_image_count(input.images.len())?;
 
@@ -560,9 +581,10 @@ pub fn create_copy_item(app: AppHandle, input: CopyItemInput) -> Result<CopyItem
     let order = items.iter().map(|item| item.order).max().unwrap_or(-1) + 1;
 
     let mut images = Vec::with_capacity(input.images.len());
+    let mut pending = PendingAssets::default();
     for (index, image_input) in input.images.iter().enumerate() {
         images.push(create_or_update_copy_image(
-            &app, &item_id, image_input, None, index,
+            &app, &item_id, image_input, None, index, &mut pending,
         )?);
     }
 
@@ -579,6 +601,7 @@ pub fn create_copy_item(app: AppHandle, input: CopyItemInput) -> Result<CopyItem
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
     upsert_clip(&conn, &item)?;
+    pending.committed = true;
     Ok(item)
 }
 
@@ -588,6 +611,7 @@ pub fn update_copy_item(
     id: String,
     input: CopyItemInput,
 ) -> Result<CopyItem, String> {
+    let _guard = db::lock_data()?;
     let title = validate_copy_title(&input.title)?;
     validate_copy_image_count(input.images.len())?;
 
@@ -598,6 +622,7 @@ pub fn update_copy_item(
 
     let old_item = items[index].clone();
     let mut images = Vec::with_capacity(input.images.len());
+    let mut pending = PendingAssets::default();
     for (image_index, image_input) in input.images.iter().enumerate() {
         images.push(create_or_update_copy_image(
             &app,
@@ -605,6 +630,7 @@ pub fn update_copy_item(
             image_input,
             Some(&old_item),
             image_index,
+            &mut pending,
         )?);
     }
 
@@ -617,12 +643,14 @@ pub fn update_copy_item(
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
     upsert_clip(&conn, &item)?;
+    pending.committed = true;
     remove_unused_copy_images(&app, &old_item, &item.images);
     Ok(item)
 }
 
 #[tauri::command]
 pub fn delete_copy_item(app: AppHandle, id: String) -> Result<(), String> {
+    let _guard = db::lock_data()?;
     let mut items = load_copy_items(&app)?;
     let original_len = items.len();
     items.retain(|item| item.id != id);
@@ -633,16 +661,19 @@ pub fn delete_copy_item(app: AppHandle, id: String) -> Result<(), String> {
 
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
-    conn.execute("DELETE FROM clip_images WHERE clip_id = ?1", params![id])
+    let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM clip_images WHERE clip_id = ?1", params![id])
         .map_err(|error| error.to_string())?;
-    conn.execute("DELETE FROM clips WHERE id = ?1", params![id])
+    tx.execute("DELETE FROM clips WHERE id = ?1", params![id])
         .map_err(|error| error.to_string())?;
+    tx.commit().map_err(|error| error.to_string())?;
     remove_copy_item_assets(&app, &id);
     Ok(())
 }
 
 #[tauri::command]
 pub fn reorder_copy_items(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
+    let _guard = db::lock_data()?;
     let items = load_copy_items(&app)?;
     if ids.len() != items.len() {
         return Err("reorder ids must contain the exact current copy item set".to_string());
@@ -661,13 +692,15 @@ pub fn reorder_copy_items(app: AppHandle, ids: Vec<String>) -> Result<(), String
 
     let conn = db::open(&app)?;
     db::init_schema_on(&conn)?;
+    let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
     for (order, id) in ids.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE clips SET order_index = ?1 WHERE id = ?2",
             params![order as i32, id],
         )
         .map_err(|error| error.to_string())?;
     }
+    tx.commit().map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -805,5 +838,21 @@ mod tests {
     fn unsupported_copy_image_type_is_rejected() {
         assert!(image_extension("image/png").is_some());
         assert!(image_extension("image/bmp").is_none());
+    }
+}
+
+#[cfg(test)]
+mod review_atomicity_probes {
+    use super::*;
+    #[test]
+    fn review_failed_clip_update_preserves_previous_images() {
+        let conn=rusqlite::Connection::open_in_memory().unwrap();db::init_schema_on(&conn).unwrap();
+        let mut item=CopyItem{id:"atomic-fixture".into(),title:"before".into(),text:String::new(),images:vec![CopyImage{id:"old-image".into(),file_name:"old.png".into(),mime_type:"image/png".into(),relative_path:"copy-assets/old.png".into(),size_bytes:1,created_at:"1".into()}],order:0,created_at:"1".into(),updated_at:"1".into()};
+        upsert_clip(&conn,&item).unwrap();
+        conn.execute_batch("CREATE TRIGGER reject_fixture_image BEFORE INSERT ON clip_images WHEN NEW.file_name='new.png' BEGIN SELECT RAISE(ABORT,'simulated image insert failure'); END;").unwrap();
+        item.title="after".into();item.images[0].id="new-image".into();item.images[0].file_name="new.png".into();
+        assert!(upsert_clip(&conn,&item).is_err());
+        let old_images:i64=conn.query_row("SELECT COUNT(*) FROM clip_images WHERE clip_id='atomic-fixture' AND id='old-image'",[],|r|r.get(0)).unwrap();
+        assert_eq!(old_images,1,"failed clip write must keep prior image references");
     }
 }

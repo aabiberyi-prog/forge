@@ -7,6 +7,10 @@ import {
     createDraft,
     duplicateShape,
     hitTestShape,
+    hitShapeHandle,
+    resizeShape,
+    isEditingTarget,
+    shapeRect,
     moveShape,
     renderScene,
     stepLabel,
@@ -30,7 +34,7 @@ const LABELS = {
     crop: 'Crop',
 };
 
-export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
+export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }) {
     const { t } = useTranslation();
     const canvasRef = useRef(null);
     const imageRef = useRef(null);
@@ -39,11 +43,13 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
     const [draft, setDraft] = useState(null);
     const [selectedId, setSelectedId] = useState(null);
     const [style, setStyle] = useState(DEFAULT_STYLE);
-    const [ready, setReady] = useState(false);
+    const [ready, setReady] = useState(0);
     const [editing, setEditing] = useState(null);
     const [error, setError] = useState(null);
     const dragRef = useRef(null);
     const clipboardRef = useRef(null);
+    const savingRef = useRef(false);
+    const [saving, setSaving] = useState(false);
 
     const selected = useMemo(
         () => shapes.find((shape) => shape.id === selectedId) || null,
@@ -95,12 +101,14 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
             setSelectedId(null);
             return;
         }
-        const stepShapes = [...shapes, nextDraft].filter((shape) => shape.tool === 'step');
+        const stepShapes = shapes.filter((shape) => shape.tool === 'step');
+        const stepIndex = Math.max(-1, ...stepShapes.map((shape, index) => shape.stepIndex ?? index)) + 1;
         const labeled =
             nextDraft.tool === 'step'
                 ? {
                       ...nextDraft,
-                      label: stepLabel(stepShapes.length - 1, style.stepKind, style.stepStart),
+                      stepIndex,
+                      label: stepLabel(stepIndex, style.stepKind, style.stepStart),
                   }
                 : nextDraft;
         setShapes((current) => [...current, labeled]);
@@ -112,13 +120,19 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
     };
 
     const onPointerDown = (event) => {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || !ready || savingRef.current) return;
+        event.currentTarget.focus();
         event.currentTarget.setPointerCapture(event.pointerId);
         const point = canvasPoint(event);
         if (tool === 'select') {
+            const handle = selected && hitShapeHandle(selected, point.x, point.y);
+            if (handle) {
+                dragRef.current = { id: selected.id, original: selected, handle, x: point.x, y: point.y };
+                return;
+            }
             const hit = [...shapes].reverse().find((shape) => hitTestShape(shape, point.x, point.y));
             setSelectedId(hit?.id || null);
-            if (hit) dragRef.current = { id: hit.id, x: point.x, y: point.y };
+            if (hit) dragRef.current = { id: hit.id, original: hit, x: point.x, y: point.y };
             return;
         }
         if (tool === 'step') {
@@ -139,11 +153,11 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
     const onPointerMove = (event) => {
         const point = canvasPoint(event);
         if (dragRef.current) {
-            const dx = point.x - dragRef.current.x;
-            const dy = point.y - dragRef.current.y;
-            dragRef.current = { ...dragRef.current, x: point.x, y: point.y };
+            const { id, original, handle, x, y } = dragRef.current;
             setShapes((current) =>
-                current.map((shape) => (shape.id === dragRef.current.id ? moveShape(shape, dx, dy) : shape))
+                current.map((shape) => shape.id === id
+                    ? handle ? resizeShape(original, handle, point.x, point.y) : moveShape(original, point.x - x, point.y - y)
+                    : shape)
             );
             return;
         }
@@ -170,6 +184,7 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
 
     const onKeyDown = (event) => {
         event.stopPropagation();
+        if (isEditingTarget(event.target) || event.nativeEvent?.isComposing || savingRef.current) return;
         if (editing) {
             if (event.key === 'Escape') setEditing(null);
             return;
@@ -225,24 +240,29 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
         if (event.key === 'Escape') onCancel();
     };
 
-    const confirm = async () => {
+    const confirm = async (retryPath = null) => {
+        if (!ready || savingRef.current) return;
+        savingRef.current = true;
+        setSaving(true);
         const canvas = canvasRef.current;
         const image = imageRef.current;
-        const ctx = canvas.getContext('2d');
-        renderScene(ctx, image, shapes, {});
-        const png = canvas.toDataURL('image/png');
         try {
-            const result = await onConfirm(png);
-            if (result && result.error) {
-                setError(result);
-            }
+            const ctx = canvas.getContext('2d');
+            const committed = editing ? shapes.map((shape) => shape.id === editing.id ? { ...shape, text: editing.text } : shape) : shapes;
+            renderScene(ctx, image, committed, {});
+            const result = await onConfirm(retryPath ? null : canvas.toDataURL('image/png'), retryPath ? { retryPath } : undefined);
+            setError(result?.error ? result : null);
         } catch (err) {
-            setError({ error: err?.message || String(err), saved: false, copied: false, path: null });
+            setError({ error: err?.message || String(err), saved: Boolean(retryPath), copied: false, path: retryPath });
+        } finally {
+            savingRef.current = false;
+            setSaving(false);
         }
     };
 
     return (
         <div className='fixed inset-0 bg-black/70 flex flex-col items-center justify-center gap-2 p-3' onKeyDown={onKeyDown} tabIndex={0}>
+            {notice ? <div role='status' className='text-warning text-sm'>{notice}</div> : null}
             <img
                 ref={imageRef}
                 src={imageSrc}
@@ -252,15 +272,24 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
                     const canvas = canvasRef.current;
                     canvas.width = event.target.naturalWidth;
                     canvas.height = event.target.naturalHeight;
-                    setReady(true);
+                    setReady((version) => version + 1);
                 }}
             />
             <canvas
                 ref={canvasRef}
+                tabIndex={0}
                 className='max-w-[90vw] max-h-[68vh] bg-black cursor-crosshair'
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
+                onPointerCancel={() => {
+                    if (dragRef.current) {
+                        const { id, original } = dragRef.current;
+                        setShapes((current) => current.map((shape) => shape.id === id ? original : shape));
+                    }
+                    dragRef.current = null;
+                    setDraft(null);
+                }}
                 onDoubleClick={(event) => {
                     const point = canvasPoint(event);
                     const hit = [...shapes].reverse().find((shape) => hitTestShape(shape, point.x, point.y));
@@ -273,6 +302,14 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
                 <textarea
                     autoFocus
                     className='absolute z-10 min-w-[180px] rounded bg-white text-black p-2 text-sm'
+                    style={(() => {
+                        const shape = shapes.find((item) => item.id === editing.id);
+                        const bounds = canvasRef.current?.getBoundingClientRect();
+                        if (!shape || !bounds) return {};
+                        const rect = shapeRect(shape);
+                        return { left: bounds.left + rect.left * bounds.width / canvasRef.current.width,
+                            top: bounds.top + rect.top * bounds.height / canvasRef.current.height };
+                    })()}
                     value={editing.text}
                     onChange={(event) => setEditing({ ...editing, text: event.target.value })}
                     onKeyDown={(event) => event.stopPropagation()}
@@ -305,7 +342,7 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
                 <Button size='sm' variant='light' onPress={onCancel}>
                     {t('screenshot.cancel')}
                 </Button>
-                <Button size='sm' color='success' onPress={confirm}>
+                <Button size='sm' color='success' isDisabled={!ready} isLoading={saving} onPress={() => confirm()}>
                     {pin ? t('screenshot.pin') : t('screenshot.save')}
                 </Button>
             </div>
@@ -321,7 +358,7 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
                     type='number'
                     className='w-20'
                     value={String(selected?.strokeWidth || style.strokeWidth)}
-                    onValueChange={(value) => patchSelected({ strokeWidth: Number(value) || 1 })}
+                    onValueChange={(value) => patchSelected({ strokeWidth: Math.min(64, Math.max(1, Number(value) || 1)) })}
                     aria-label={t('screenshot.stroke')}
                 />
                 <Select
@@ -333,13 +370,14 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
                 >
                     <SelectItem key='solid'>{t('screenshot.solid')}</SelectItem>
                     <SelectItem key='dash'>{t('screenshot.dash')}</SelectItem>
+                    <SelectItem key='dot'>{t('screenshot.dot')}</SelectItem>
                 </Select>
                 <Input
                     size='sm'
                     type='number'
                     className='w-20'
                     value={String(selected?.fontSize || style.fontSize)}
-                    onValueChange={(value) => patchSelected({ fontSize: Number(value) || 12 })}
+                    onValueChange={(value) => patchSelected({ fontSize: Math.min(256, Math.max(8, Number(value) || 12)) })}
                     aria-label={t('screenshot.font_size')}
                 />
                 <Input
@@ -349,12 +387,33 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
                     onValueChange={(value) => patchSelected({ fontFamily: value })}
                     aria-label={t('screenshot.font_family')}
                 />
+                <Select size='sm' className='w-32' aria-label={t('screenshot.font_style')}
+                    selectedKeys={[selected?.fontStyle || style.fontStyle]}
+                    onSelectionChange={(keys) => patchSelected({ fontStyle: Array.from(keys)[0] || 'normal' })}>
+                    {['normal', 'bold', 'italic', 'bold italic'].map((value) => <SelectItem key={value}>{t(`screenshot.font_${value.replace(' ', '_')}`)}</SelectItem>)}
+                </Select>
+                <Select size='sm' className='w-32' aria-label={t('screenshot.arrow_style')}
+                    selectedKeys={[selected?.arrowStyle || style.arrowStyle]}
+                    onSelectionChange={(keys) => patchSelected({ arrowStyle: Array.from(keys)[0] || 'single' })}>
+                    {['single', 'double', 'none'].map((value) => <SelectItem key={value}>{t(`screenshot.arrow_${value}`)}</SelectItem>)}
+                </Select>
+                <Select size='sm' className='w-28' aria-label={t('screenshot.step_kind')}
+                    selectedKeys={[selected?.stepKind || style.stepKind]}
+                    onSelectionChange={(keys) => patchSelected({ stepKind: Array.from(keys)[0] || 'number' })}>
+                    <SelectItem key='number'>1, 2, 3</SelectItem><SelectItem key='alpha'>A, B, C</SelectItem>
+                </Select>
+                <Input size='sm' type='number' className='w-20' min={1} aria-label={t('screenshot.step_start')}
+                    value={String(selected?.stepStart || style.stepStart)}
+                    onValueChange={(value) => patchSelected({ stepStart: Math.max(1, Math.floor(Number(value) || 1)) })} />
+                <Input size='sm' type='number' className='w-20' min={1} max={8} step={0.25} aria-label={t('screenshot.magnify_scale')}
+                    value={String(selected?.magnifyScale || style.magnifyScale)}
+                    onValueChange={(value) => patchSelected({ magnifyScale: Math.min(8, Math.max(1, Number(value) || 2)) })} />
                 <Input
                     size='sm'
                     type='number'
                     className='w-20'
                     value={String(selected?.blurRadius || style.blurRadius)}
-                    onValueChange={(value) => patchSelected({ blurRadius: Number(value) || 1 })}
+                    onValueChange={(value) => patchSelected({ blurRadius: Math.min(64, Math.max(1, Number(value) || 1)) })}
                     aria-label={t('screenshot.blur')}
                 />
                 <Button
@@ -380,7 +439,7 @@ export default function Annotator({ imageSrc, pin, onCancel, onConfirm }) {
                         {error.error ? ` · ${error.error}` : ''}
                     </span>
                     {error.saved && !error.copied && error.path ? (
-                        <Button size='sm' variant='flat' onPress={() => onConfirm(null, { retryPath: error.path })}>
+                        <Button size='sm' variant='flat' isLoading={saving} onPress={() => confirm(error.path)}>
                             {t('screenshot.retry_copy')}
                         </Button>
                     ) : null}

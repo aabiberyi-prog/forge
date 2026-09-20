@@ -5,7 +5,7 @@ import { currentMonitor } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { emit } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import { warn } from '@tauri-apps/plugin-log';
 import { useTranslation } from 'react-i18next';
 import Annotator from './Annotator';
@@ -35,6 +35,15 @@ export default function Screenshot() {
     const [selectedId, setSelectedId] = useState(null);
     const imgRef = useRef();
     const dragRef = useRef(null);
+    const confirmingRef = useRef(false);
+    const [selectionError, setSelectionError] = useState('');
+    const [notice, setNotice] = useState('');
+    const [scrollFrames, setScrollFrames] = useState(0);
+
+    useEffect(() => {
+        const unlisten = listen('scroll-capture-progress', (event) => setScrollFrames(event.payload));
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
 
     useEffect(() => {
         invoke('get_capture_mode')
@@ -59,6 +68,10 @@ export default function Screenshot() {
     const imagePoint = (event) => imagePointFromEvent(event, imgRef.current);
 
     const confirmRegions = async () => {
+        if (confirmingRef.current) return;
+        confirmingRef.current = true;
+        setSelectionError('');
+        try {
         const list = draft ? [...regions, draft] : regions;
         if (!list.length) return;
         const img = imgRef.current;
@@ -73,6 +86,7 @@ export default function Screenshot() {
         const width = Math.floor(bounds.width);
         const height = Math.floor(bounds.height);
         if (mode === 'scroll') {
+            setStage('scrolling');
             const monitor = await currentMonitor();
             const originX = monitor?.position?.x ?? 0;
             const originY = monitor?.position?.y ?? 0;
@@ -88,6 +102,7 @@ export default function Screenshot() {
                 await appWindow.close();
                 return;
             }
+            setNotice(result.error ? t('screenshot.scroll_partial', { reason: t(`screenshot.scroll_reason_${result.stopped}`) }) : '');
             setCutUrl(`${convertFileSrc(result.cutPath)}?t=${Date.now()}`);
             setStage('annotate');
             await appWindow.setFullscreen(false);
@@ -122,12 +137,29 @@ export default function Screenshot() {
         await appWindow.setSize(new LogicalSize(960, 720));
         await appWindow.show();
         await appWindow.setFocus();
+        } catch (error) {
+            setSelectionError(error?.message || String(error));
+            setStage('select');
+            await appWindow.show();
+            await appWindow.setFocus();
+        } finally {
+            confirmingRef.current = false;
+        }
     };
+
+    if (stage === 'scrolling') {
+        return <div className='h-screen bg-background p-4 flex flex-col gap-2' role='status'>
+            <span>{t('screenshot.scroll_progress', { count: scrollFrames })}</span>
+            <span>{t('screenshot.scroll_hint')}</span>
+            <Button onPress={() => invoke('cancel_scrolling_capture')}>{t('screenshot.cancel')}</Button>
+        </div>;
+    }
 
     if (stage === 'annotate') {
         return (
             <Annotator
                 imageSrc={cutUrl}
+                notice={notice}
                 pin={mode === 'pin'}
                 onCancel={() => appWindow.close()}
                 onConfirm={async (png, extra) => {
@@ -156,35 +188,18 @@ export default function Screenshot() {
                     }
                 }}
             />
-            {regions.map((region) => {
-                const rect = regionRect(region);
-                const selected = region.id === selectedId;
-                return (
-                    <div
-                        key={region.id}
-                        className={`fixed border border-solid ${selected ? 'border-sky-300' : 'border-sky-500'} bg-[#2080f020]`}
-                        style={{
-                            left: `${(rect.left / (imgRef.current?.naturalWidth || 1)) * 100}%`,
-                            top: `${(rect.top / (imgRef.current?.naturalHeight || 1)) * 100}%`,
-                            width: `${(rect.width / (imgRef.current?.naturalWidth || 1)) * 100}%`,
-                            height: `${(rect.height / (imgRef.current?.naturalHeight || 1)) * 100}%`,
-                            borderRadius: region.tool === 'ellipse' ? '50%' : 0,
-                        }}
-                    />
-                );
-            })}
-            {draft ? (
-                <div
-                    className='fixed border border-solid border-sky-500 bg-[#2080f020]'
-                    style={{
-                        left: `${(regionRect(draft).left / (imgRef.current?.naturalWidth || 1)) * 100}%`,
-                        top: `${(regionRect(draft).top / (imgRef.current?.naturalHeight || 1)) * 100}%`,
-                        width: `${(regionRect(draft).width / (imgRef.current?.naturalWidth || 1)) * 100}%`,
-                        height: `${(regionRect(draft).height / (imgRef.current?.naturalHeight || 1)) * 100}%`,
-                        borderRadius: draft.tool === 'ellipse' ? '50%' : 0,
-                    }}
-                />
-            ) : null}
+            <svg className='fixed inset-0 w-full h-full pointer-events-none'
+                viewBox={`0 0 ${imgRef.current?.naturalWidth || 1} ${imgRef.current?.naturalHeight || 1}`} preserveAspectRatio='none'>
+                {[...regions, ...(draft ? [draft] : [])].map((region) => {
+                    const rect = regionRect(region);
+                    const outline = { fill: '#2080f020', stroke: region.id === selectedId ? '#7dd3fc' : '#0ea5e9', strokeWidth: 1, vectorEffect: 'non-scaling-stroke' };
+                    return <g key={region.id}>
+                        {region.tool === 'freehand' ? <polygon {...outline} points={region.points.map((point) => `${point.x},${point.y}`).join(' ')} />
+                            : region.tool === 'ellipse' ? <ellipse {...outline} cx={rect.left + rect.width / 2} cy={rect.top + rect.height / 2} rx={rect.width / 2} ry={rect.height / 2} />
+                              : <rect {...outline} x={rect.left} y={rect.top} width={rect.width} height={rect.height} />}
+                    </g>;
+                })}
+            </svg>
             <div
                 className='fixed top-0 left-0 bottom-0 right-0 cursor-crosshair select-none'
                 onPointerDown={(event) => {
@@ -240,6 +255,7 @@ export default function Screenshot() {
                         points: draft.tool === 'freehand' ? [...draft.points, point] : draft.points,
                     });
                 }}
+                onPointerCancel={() => { dragRef.current = null; setDraft(null); }}
                 onPointerUp={() => {
                     if (dragRef.current) {
                         dragRef.current = null;
@@ -254,6 +270,8 @@ export default function Screenshot() {
                     setDraft(null);
                 }}
             />
+            {selectionError ? <div role='alert' className='fixed top-4 left-4 right-4 bg-danger text-white p-2'>{selectionError}</div> : null}
+            {mode === 'scroll' ? <div className='fixed top-4 left-4 bg-black/70 text-white p-2'>{t('screenshot.scroll_hint')}</div> : null}
             <div className='fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-1 bg-black/60 p-1 rounded'>
                 {REGION_TOOLS.map((name) => (
                     <Button

@@ -10,6 +10,8 @@ export default function PinHistory() {
     const { t } = useTranslation();
     const [items, setItems] = useState([]);
     const [error, setError] = useState('');
+    const [page, setPage] = useState(0);
+    const pageSize = 50;
 
     useEffect(() => {
         invoke('list_pin_history')
@@ -28,7 +30,7 @@ export default function PinHistory() {
             </div>
             {error ? <div className='text-danger text-xs'>{error}</div> : null}
             <div className='flex-1 overflow-auto text-xs'>
-                {items.map((item) => (
+                {items.slice(page * pageSize, (page + 1) * pageSize).map((item) => (
                     <button
                         key={item.id}
                         className='w-full text-left px-2 py-1.5 rounded hover:bg-white/10 disabled:opacity-40'
@@ -48,6 +50,11 @@ export default function PinHistory() {
                         </div>
                     </button>
                 ))}
+            </div>
+            <div className='flex items-center justify-between text-xs'>
+                <Button size='sm' isDisabled={page === 0} onPress={() => setPage((value) => value - 1)}>{t('panel.prev')}</Button>
+                <span>{page + 1} / {Math.max(1, Math.ceil(items.length / pageSize))} · {items.length}</span>
+                <Button size='sm' isDisabled={(page + 1) * pageSize >= items.length} onPress={() => setPage((value) => value + 1)}>{t('panel.next')}</Button>
             </div>
         </div>
     );

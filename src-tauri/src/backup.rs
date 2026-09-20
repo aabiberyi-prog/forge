@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::features::db;
 use log::info;
 use reqwest_dav::{Auth, ClientBuilder, Depth};
 use std::io::Write;
@@ -16,12 +17,10 @@ const PROFILE_ITEMS: [&str; 5] = [
 ];
 
 fn forge_profile_dir() -> PathBuf {
-    if let Ok(path) = std::env::var("FORGE_BACKUP_PROFILE_DIR") {
-        return PathBuf::from(path);
-    }
+    let identifier = crate::APP.get().map(|app| app.config().identifier.as_str()).unwrap_or("com.aabiber.pot-forge");
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.aabiber.pot-forge")
+        .join(identifier)
 }
 
 fn copy_item(src: &Path, dst: &Path) -> Result<(), Error> {
@@ -57,7 +56,11 @@ fn snapshot_profile_items(dir: &Path) -> Result<PathBuf, Error> {
     for rel in PROFILE_ITEMS {
         let src = dir.join(rel);
         if src.exists() {
-            copy_item(&src, &snap.join(rel))?;
+            if rel == "history.db" {
+                db::copy_database(&src, &snap.join(rel)).map_err(|e| Error::Error(e.into()))?;
+            } else {
+                copy_item(&src, &snap.join(rel))?;
+            }
         }
     }
     Ok(snap)
@@ -66,14 +69,20 @@ fn snapshot_profile_items(dir: &Path) -> Result<PathBuf, Error> {
 fn restore_profile_items(dir: &Path, snap: &Path) -> Result<(), Error> {
     for rel in PROFILE_ITEMS {
         let dest = dir.join(rel);
+        let src = snap.join(rel);
+        if rel == "history.db" {
+            if src.exists() {
+                db::copy_database(&src, &dest).map_err(|e| Error::Error(e.into()))?;
+            }
+            continue;
+        }
         if dest.exists() {
             if dest.is_dir() {
-                let _ = std::fs::remove_dir_all(&dest);
+                std::fs::remove_dir_all(&dest)?;
             } else {
-                let _ = std::fs::remove_file(&dest);
+                std::fs::remove_file(&dest)?;
             }
         }
-        let src = snap.join(rel);
         if src.exists() {
             copy_item(&src, &dest)?;
         }
@@ -82,35 +91,73 @@ fn restore_profile_items(dir: &Path, snap: &Path) -> Result<(), Error> {
 }
 
 pub(crate) fn archive_profile(config_dir_path: &Path, zip_path: &Path) -> Result<(), Error> {
+    let _guard = db::lock_data().map_err(|e| Error::Error(e.into()))?;
     if let Some(parent) = zip_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let zip_file = std::fs::File::create(zip_path)?;
-    let mut zip = zip::ZipWriter::new(zip_file);
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    for rel in PROFILE_ITEMS {
-        add_path_to_zip(&mut zip, options, config_dir_path, rel)?;
-    }
-    zip.finish()?;
-    Ok(())
+    let snapshot = snapshot_profile_items(config_dir_path)?;
+    let result = (|| {
+        let zip_file = std::fs::File::create(zip_path)?;
+        let mut zip = zip::ZipWriter::new(zip_file);
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        for rel in PROFILE_ITEMS {
+            add_path_to_zip(&mut zip, options, &snapshot, rel)?;
+        }
+        zip.finish()?;
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(snapshot);
+    result
 }
 
 pub(crate) fn restore_profile(config_dir_path: &Path, zip_path: &Path) -> Result<(), Error> {
+    let _guard = db::lock_data().map_err(|e| Error::Error(e.into()))?;
     std::fs::create_dir_all(config_dir_path)?;
-    let snap = snapshot_profile_items(config_dir_path)?;
+    let staging = std::env::temp_dir().join(format!(
+        "forge-restore-stage-{}", crate::features::json_store::unique_stamp()
+    ));
+    std::fs::create_dir_all(&staging)?;
     let extracted = (|| {
         let mut zip_file = std::fs::File::open(zip_path)?;
         let mut zip = ZipArchive::new(&mut zip_file)?;
-        zip.extract(config_dir_path)?;
+        for index in 0..zip.len() {
+            let entry = zip.by_index(index)?;
+            let path = entry.enclosed_name().ok_or_else(|| Error::Error("invalid backup path".into()))?;
+            let first = path.components().next().and_then(|part| part.as_os_str().to_str());
+            if !first.is_some_and(|name| PROFILE_ITEMS.contains(&name)) {
+                return Err(Error::Error("unexpected backup entry".into()));
+            }
+        }
+        zip.extract(&staging)?;
+        if !staging.join("history.db").is_file() {
+            return Err(Error::Error("backup is missing history.db".into()));
+        }
+        for name in ["config.json", "panel.json"] {
+            if staging.join(name).exists() {
+                let _: serde_json::Value = serde_json::from_slice(&std::fs::read(staging.join(name))?)?;
+            }
+        }
+        // Validate before any live-profile file is changed.
+        let check = staging.join("validated.db");
+        db::copy_database(&staging.join("history.db"), &check).map_err(|e| Error::Error(e.into()))?;
         Ok::<(), Error>(())
     })();
-    match extracted {
+    if let Err(error) = extracted {
+        let _ = std::fs::remove_dir_all(staging);
+        return Err(error);
+    }
+    let snap = snapshot_profile_items(config_dir_path)?;
+    let result = restore_profile_items(config_dir_path, &staging);
+    let _ = std::fs::remove_dir_all(staging);
+    match result {
         Ok(()) => {
             let _ = std::fs::remove_dir_all(&snap);
             Ok(())
         }
         Err(error) => {
-            let _ = restore_profile_items(config_dir_path, &snap);
+            if let Err(rollback) = restore_profile_items(config_dir_path, &snap) {
+                return Err(Error::Error(format!("{error}; rollback failed: {rollback}; snapshot retained at {}", snap.display()).into()));
+            }
             let _ = std::fs::remove_dir_all(&snap);
             Err(error)
         }
@@ -276,7 +323,8 @@ mod tests {
         fs::create_dir_all(dir.join("copy-assets/copy-1")).unwrap();
         fs::create_dir_all(dir.join("plugins/sample")).unwrap();
         fs::write(dir.join("config.json"), "{\"ok\":true}").unwrap();
-        fs::write(dir.join("history.db"), b"sqlite-bytes").unwrap();
+        let conn = rusqlite::Connection::open(dir.join("history.db")).unwrap();
+        conn.execute_batch("CREATE TABLE fixture(value TEXT); INSERT INTO fixture VALUES('kept');").unwrap();
         fs::write(dir.join("panel.json"), "{\"x\":1}").unwrap();
         fs::write(dir.join("copy-assets/copy-1/a.png"), b"img").unwrap();
         fs::write(dir.join("plugins/sample/index.js"), "export default {}").unwrap();
@@ -309,7 +357,10 @@ mod tests {
         fs::create_dir_all(&profile).unwrap();
         restore_profile(&profile, &zip_path).unwrap();
         assert_eq!(fs::read_to_string(profile.join("config.json")).unwrap(), "{\"ok\":true}");
-        assert_eq!(fs::read(profile.join("history.db")).unwrap(), b"sqlite-bytes");
+        let conn = rusqlite::Connection::open(profile.join("history.db")).unwrap();
+        let value: String = conn.query_row("SELECT value FROM fixture", [], |row| row.get(0)).unwrap();
+        assert_eq!(value, "kept");
+        drop(conn);
         assert_eq!(fs::read(profile.join("copy-assets/copy-1/a.png")).unwrap(), b"img");
         assert!(profile.join("plugins/sample/index.js").exists());
         let _ = fs::remove_dir_all(profile);
@@ -327,7 +378,10 @@ mod tests {
         let err = restore_profile(&profile, &zip_path).unwrap_err();
         let _ = err;
         assert_eq!(fs::read_to_string(profile.join("config.json")).unwrap(), "{\"ok\":true}");
-        assert_eq!(fs::read(profile.join("history.db")).unwrap(), b"sqlite-bytes");
+        let conn = rusqlite::Connection::open(profile.join("history.db")).unwrap();
+        let value: String = conn.query_row("SELECT value FROM fixture", [], |row| row.get(0)).unwrap();
+        assert_eq!(value, "kept");
+        drop(conn);
         assert_eq!(fs::read(profile.join("copy-assets/copy-1/a.png")).unwrap(), b"img");
         let _ = fs::remove_dir_all(profile);
         let _ = fs::remove_file(zip_path);

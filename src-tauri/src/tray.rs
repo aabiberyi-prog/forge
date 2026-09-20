@@ -133,6 +133,11 @@ fn build_menu(
         .text("pin_history", text("pin_history"))
         .text("record", text("record"))
         .text("scroll", text("scroll"))
+        .text("scroll_status", match crate::features::scroll::progress() {
+            Some(frames) => if language.starts_with("zh") { format!("滚动截图：{frames} 帧（Esc 取消）") } else { format!("Scrolling: {frames} frames (Esc cancels)") },
+            None => if language.starts_with("zh") { "滚动截图：空闲".into() } else { "Scrolling: idle".into() },
+        })
+        .text("cancel_scroll", if language.starts_with("zh") { "取消滚动截图" } else { "Cancel scrolling capture" })
         .text("check_update", text("check_update"))
         .text("view_log", text("view_log"))
         .separator()
@@ -174,6 +179,7 @@ fn handle_menu(app: &AppHandle, event: MenuEvent) {
         "pin_history" => crate::features::pins::open_pin_history_window(),
         "record" => toggle_recording(),
         "scroll" => start_scrolling_capture(),
+        "cancel_scroll" => crate::features::scroll::cancel_scrolling_capture(),
         "check_update" => updater_window(),
         "clipboard_monitor" => {
             let enabled = !get("clipboard_monitor")
