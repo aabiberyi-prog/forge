@@ -50,6 +50,7 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
     const clipboardRef = useRef(null);
     const savingRef = useRef(false);
     const [saving, setSaving] = useState(false);
+    const [loadError, setLoadError] = useState('');
 
     const selected = useMemo(
         () => shapes.find((shape) => shape.id === selectedId) || null,
@@ -144,6 +145,8 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
             return;
         }
         if (tool === 'text') {
+            // Keep the new textarea focused instead of the canvas's default mousedown focus.
+            event.preventDefault();
             commitDraft({ ...createDraft('text', point, style), text: '' });
             return;
         }
@@ -263,12 +266,16 @@ export default function Annotator({ imageSrc, pin, notice, onCancel, onConfirm }
     return (
         <div className='fixed inset-0 bg-black/70 flex flex-col items-center justify-center gap-2 p-3' onKeyDown={onKeyDown} tabIndex={0}>
             {notice ? <div role='status' className='text-warning text-sm'>{notice}</div> : null}
+            {loadError ? <div role='alert' className='text-danger text-sm'>{loadError}</div> : null}
             <img
                 ref={imageRef}
+                crossOrigin='anonymous'
                 src={imageSrc}
                 alt=''
                 className='hidden'
+                onError={() => { setReady(0); setLoadError(t('screenshot.load_failed')); }}
                 onLoad={(event) => {
+                    setLoadError('');
                     const canvas = canvasRef.current;
                     canvas.width = event.target.naturalWidth;
                     canvas.height = event.target.naturalHeight;

@@ -40,29 +40,35 @@ export default function Screenshot() {
     const [notice, setNotice] = useState('');
     const [scrollFrames, setScrollFrames] = useState(0);
 
+    const showLoadError = async (error) => {
+        setSelectionError(error ? `${t('screenshot.load_failed')}: ${error?.message || String(error)}` : t('screenshot.load_failed'));
+        await appWindow.show();
+        await appWindow.setFocus();
+    };
+
     useEffect(() => {
         const unlisten = listen('scroll-capture-progress', (event) => setScrollFrames(event.payload));
         return () => { unlisten.then((fn) => fn()); };
     }, []);
 
     useEffect(() => {
-        invoke('get_capture_mode')
-            .then((value) => {
+        const loadCapture = async () => {
+            try {
+                const value = await invoke('get_capture_mode');
                 if (value === 'save' || value === 'pin' || value === 'ocr' || value === 'scroll') {
                     setMode(value);
                 }
-            })
-            .catch(() => {});
-        currentMonitor().then((monitor) => {
-            const position = monitor.position;
-            invoke('screenshot', { x: position.x, y: position.y }).then(() => {
-                appCacheDir().then((appCacheDirPath) => {
-                    join(appCacheDirPath, 'pot_screenshot.png').then((filePath) => {
-                        setImgurl(convertFileSrc(filePath));
-                    });
-                });
-            });
-        });
+                const monitor = await currentMonitor();
+                if (!monitor) throw new Error('No monitor available');
+                const position = monitor.position;
+                await invoke('screenshot', { x: position.x, y: position.y });
+                const filePath = await join(await appCacheDir(), 'pot_screenshot.png');
+                setImgurl(`${convertFileSrc(filePath)}?t=${Date.now()}`);
+            } catch (error) {
+                await showLoadError(error);
+            }
+        };
+        void loadCapture();
     }, []);
 
     const imagePoint = (event) => imagePointFromEvent(event, imgRef.current);
@@ -177,9 +183,11 @@ export default function Screenshot() {
         <>
             <img
                 ref={imgRef}
+                crossOrigin='anonymous'
                 className='fixed top-0 left-0 w-full h-full object-fill select-none'
                 src={imgurl}
                 draggable={false}
+                onError={() => { if (imgurl) void showLoadError(); }}
                 onLoad={() => {
                     if (imgurl !== '' && imgRef.current.complete) {
                         void appWindow.show();

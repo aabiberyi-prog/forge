@@ -301,6 +301,7 @@
             "save": "保存"
         },
         "screenshot": {
+            "load_failed": "无法加载截图",
             "select": "选择",
             "undo": "撤销",
             "cancel": "取消",

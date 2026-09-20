@@ -59,13 +59,13 @@ pub fn open_pin_window(app: &AppHandle, source: &Path) -> Result<String, String>
     Ok(label)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_pin_from_path(path: String) -> Result<String, String> {
     let app = APP.get().ok_or("app handle is not ready")?;
     open_pin_window(app, Path::new(&path))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pin_from_clipboard() -> Result<String, String> {
     let app = APP.get().ok_or("app handle is not ready")?;
     let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
@@ -222,7 +222,7 @@ pub async fn list_pin_history() -> Result<Vec<PinHistoryItem>, String> {
     }).await.map_err(|error| error.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_pin_history_window() {
     crate::window::open_pin_history();
 }

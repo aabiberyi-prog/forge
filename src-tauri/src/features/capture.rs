@@ -155,7 +155,7 @@ pub(crate) fn record_capture_history(app: &AppHandle, path: &Path, kind: &str) -
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn finish_capture(png_base64: String, pin: bool) -> Result<CaptureFinishResult, String> {
     let app = APP.get().ok_or("app handle is not ready")?;
     let bytes = decode_png_base64(&png_base64)?;
@@ -198,7 +198,7 @@ pub fn finish_capture(png_base64: String, pin: bool) -> Result<CaptureFinishResu
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn retry_capture_copy(path: String, pin: bool) -> Result<CaptureFinishResult, String> {
     let bytes = fs::read(&path).map_err(|error| error.to_string())?;
     match copy_png_bytes(&bytes) {

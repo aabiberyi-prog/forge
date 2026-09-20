@@ -301,6 +301,7 @@
             "save": "Save"
         },
         "screenshot": {
+            "load_failed": "Could not load the screenshot",
             "select": "Select",
             "undo": "Undo",
             "cancel": "Cancel",
